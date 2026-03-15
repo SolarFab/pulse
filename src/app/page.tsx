@@ -7,13 +7,15 @@ import Filters from "@/components/Filters";
 import EventDetail from "@/components/EventDetail";
 import EventList from "@/components/EventList";
 import ChatPanel from "@/components/ChatPanel";
+import ProfilePage from "@/components/ProfilePage";
+import Onboarding from "@/components/Onboarding";
 import { Event, TimeFilter } from "@/lib/types";
 import type { DateRange } from "@/components/Filters";
 import { createClient } from "@/lib/supabase/client";
 
 const EventMap = dynamic(() => import("@/components/EventMap"), { ssr: false });
 
-type View = "map" | "list" | "chat";
+type View = "map" | "list" | "chat" | "profile";
 
 export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -27,7 +29,30 @@ export default function Home() {
   const [view, setView] = useState<View>("map");
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [chatMentionedEvents, setChatMentionedEvents] = useState<Event[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const router = useRouter();
+
+  // Check onboarding status
+  useEffect(() => {
+    async function checkOnboarding() {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setUserId(user.id);
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("onboarding_completed")
+        .eq("id", user.id)
+        .single();
+
+      if (data && !data.onboarding_completed) {
+        setShowOnboarding(true);
+      }
+    }
+    checkOnboarding();
+  }, []);
 
   const handleLogout = useCallback(async () => {
     const supabase = createClient();
@@ -92,6 +117,15 @@ export default function Home() {
     setSelectedEvent(null);
   }, []);
 
+  if (showOnboarding && userId) {
+    return (
+      <Onboarding
+        userId={userId}
+        onComplete={() => setShowOnboarding(false)}
+      />
+    );
+  }
+
   return (
     <main className="relative w-screen h-dvh overflow-hidden bg-[#faf9f6] flex flex-col">
       <div className="flex-1 relative flex flex-col min-h-0">
@@ -99,7 +133,7 @@ export default function Home() {
         <div
           className={`relative transition-all duration-300 ${
             view === "chat" ? "h-[55%]" : "flex-1"
-          } ${view === "list" ? "hidden" : ""}`}
+          } ${view === "list" || view === "profile" ? "hidden" : ""}`}
         >
           <EventMap
             events={view === "chat" && chatMentionedEvents.length > 0 ? chatMentionedEvents : events}
@@ -167,6 +201,14 @@ export default function Home() {
           </div>
         )}
 
+        {/* Profile view */}
+        {view === "profile" && (
+          <ProfilePage
+            onBack={() => setView("map")}
+            onLogout={handleLogout}
+          />
+        )}
+
         {/* Fullscreen event detail — chat mode */}
         {selectedEvent && view === "chat" && (
           <div className="absolute inset-0 z-[60] bg-white overflow-y-auto animate-slide-up">
@@ -227,11 +269,13 @@ export default function Home() {
           <span className="text-[11px] font-semibold">Ask AI</span>
         </button>
         <button
-          onClick={handleLogout}
-          className="flex flex-col items-center gap-1 px-6 py-2.5 rounded-2xl transition text-gray-400"
+          onClick={() => setView("profile")}
+          className={`flex flex-col items-center gap-1 px-6 py-2.5 rounded-2xl transition ${
+            view === "profile" ? "text-gray-900 bg-gray-100" : "text-gray-400"
+          }`}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          <span className="text-[11px] font-semibold">Logout</span>
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          <span className="text-[11px] font-semibold">Profile</span>
         </button>
       </nav>
     </main>

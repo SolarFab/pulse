@@ -18,6 +18,14 @@ export interface Event {
   source_url: string | null;
 }
 
+export interface Profile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  genres: string[];
+  onboarding_completed: boolean;
+}
+
 export const CATEGORIES: Record<
   string,
   { emoji: string; color: string; label: string }
