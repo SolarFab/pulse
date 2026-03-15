@@ -1,10 +1,12 @@
 "use client";
 
 import { Event, CATEGORIES } from "@/lib/types";
+import { BookmarkStatus } from "@/lib/bookmarks";
 
 interface Props {
   events: Event[];
   onSelectEvent: (event: Event) => void;
+  bookmarks?: Record<string, BookmarkStatus>;
 }
 
 function formatTime(iso: string) {
@@ -28,7 +30,7 @@ function isToday(iso: string): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-export default function EventList({ events, onSelectEvent }: Props) {
+export default function EventList({ events, onSelectEvent, bookmarks = {} }: Props) {
   return (
     <div className="absolute inset-0 z-30 bg-[#faf9f6] overflow-y-auto pt-28 pb-4 px-3">
       {events.length === 0 && (
@@ -39,6 +41,7 @@ export default function EventList({ events, onSelectEvent }: Props) {
       <div className="space-y-2">
         {events.map((event) => {
           const cat = CATEGORIES[event.category] || CATEGORIES.social;
+          const bm = bookmarks[event.id];
           return (
             <button
               key={event.id}
@@ -52,15 +55,27 @@ export default function EventList({ events, onSelectEvent }: Props) {
                 {cat.emoji}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold text-gray-900 truncate">
-                  {event.title}
-                </h3>
+                <div className="flex items-center gap-1.5">
+                  <h3 className="text-sm font-semibold text-gray-900 truncate flex-1">
+                    {event.title}
+                  </h3>
+                  {bm === "going" && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium shrink-0">
+                      Going
+                    </span>
+                  )}
+                  {bm === "interested" && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium shrink-0">
+                      {"\u2605"}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500 truncate">
                   {event.venue_name}
                   {event.neighborhood && ` \u00B7 ${event.neighborhood}`}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {!isToday(event.start_time) && `${formatDate(event.start_time)} · `}
+                  {!isToday(event.start_time) && `${formatDate(event.start_time)} \u00B7 `}
                   {formatTime(event.start_time)}
                   {event.end_time && ` \u2013 ${formatTime(event.end_time)}`}
                   {event.price && ` \u00B7 ${event.price}`}

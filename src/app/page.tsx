@@ -1,21 +1,24 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import Filters from "@/components/Filters";
+import type { PriceFilter } from "@/components/Filters";
 import EventDetail from "@/components/EventDetail";
 import EventList from "@/components/EventList";
 import ChatPanel from "@/components/ChatPanel";
 import ProfilePage from "@/components/ProfilePage";
+import SavedEvents from "@/components/SavedEvents";
 import Onboarding from "@/components/Onboarding";
 import { Event, TimeFilter } from "@/lib/types";
 import type { DateRange } from "@/components/Filters";
 import { createClient } from "@/lib/supabase/client";
+import { BookmarkStatus, getMyBookmarks } from "@/lib/bookmarks";
 
 const EventMap = dynamic(() => import("@/components/EventMap"), { ssr: false });
 
-type View = "map" | "list" | "chat" | "profile";
+type View = "map" | "list" | "chat" | "profile" | "saved";
 
 export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -31,11 +34,14 @@ export default function Home() {
   const [chatMentionedEvents, setChatMentionedEvents] = useState<Event[]>([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [priceFilter, setPriceFilter] = useState<PriceFilter>("all");
+  const [venueSearch, setVenueSearch] = useState("");
+  const [bookmarks, setBookmarks] = useState<Record<string, BookmarkStatus>>({});
   const router = useRouter();
 
-  // Check onboarding status
+  // Check onboarding status + load bookmarks
   useEffect(() => {
-    async function checkOnboarding() {
+    async function init() {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -50,8 +56,12 @@ export default function Home() {
       if (data && !data.onboarding_completed) {
         setShowOnboarding(true);
       }
+
+      // Load bookmarks
+      const bm = await getMyBookmarks();
+      setBookmarks(bm);
     }
-    checkOnboarding();
+    init();
   }, []);
 
   const handleLogout = useCallback(async () => {
@@ -87,6 +97,39 @@ export default function Home() {
     fetchEvents();
   }, [fetchEvents]);
 
+  // Client-side price + venue filtering
+  const filteredEvents = useMemo(() => {
+    let result = events;
+
+    // Price filter
+    if (priceFilter !== "all") {
+      result = result.filter((e) => {
+        if (!e.price) return priceFilter === "free";
+        const priceLower = e.price.toLowerCase();
+        if (priceFilter === "free") {
+          return priceLower.includes("free") || priceLower.includes("frei") || priceLower === "0" || priceLower.includes("kostenlos");
+        }
+        // Extract numeric price
+        const match = e.price.match(/(\d+([.,]\d+)?)/);
+        if (!match) return true; // Can't parse, include it
+        const amount = parseFloat(match[1].replace(",", "."));
+        if (priceFilter === "under15") return amount < 15;
+        if (priceFilter === "under30") return amount < 30;
+        return true;
+      });
+    }
+
+    // Venue search
+    if (venueSearch.trim()) {
+      const q = venueSearch.toLowerCase().trim();
+      result = result.filter((e) =>
+        e.venue_name.toLowerCase().includes(q)
+      );
+    }
+
+    return result;
+  }, [events, priceFilter, venueSearch]);
+
   const handleCategoryToggle = useCallback((cat: string) => {
     setActiveCategories((prev) => {
       const next = new Set(prev);
@@ -104,6 +147,7 @@ export default function Home() {
       setSelectedEvent(event);
       setHighlightedEvent(null);
       if (event && view === "list") setView("map");
+      if (event && view === "saved") setView("map");
     },
     [view]
   );
@@ -115,6 +159,18 @@ export default function Home() {
 
   const handleCloseEvent = useCallback(() => {
     setSelectedEvent(null);
+  }, []);
+
+  const handleBookmarkChange = useCallback((eventId: string, status: BookmarkStatus) => {
+    setBookmarks((prev) => {
+      const next = { ...prev };
+      if (status) {
+        next[eventId] = status;
+      } else {
+        delete next[eventId];
+      }
+      return next;
+    });
   }, []);
 
   if (showOnboarding && userId) {
@@ -133,10 +189,10 @@ export default function Home() {
         <div
           className={`relative transition-all duration-300 ${
             view === "chat" ? "h-[55%]" : "flex-1"
-          } ${view === "list" || view === "profile" ? "hidden" : ""}`}
+          } ${view === "list" || view === "profile" || view === "saved" ? "hidden" : ""}`}
         >
           <EventMap
-            events={view === "chat" && chatMentionedEvents.length > 0 ? chatMentionedEvents : events}
+            events={view === "chat" && chatMentionedEvents.length > 0 ? chatMentionedEvents : filteredEvents}
             selectedEvent={selectedEvent}
             highlightedEvent={highlightedEvent}
             onSelectEvent={handleSelectEvent}
@@ -149,9 +205,13 @@ export default function Home() {
               activeCategories={activeCategories}
               onTimeChange={setTimeFilter}
               onCategoryToggle={handleCategoryToggle}
-              eventCount={events.length}
+              eventCount={filteredEvents.length}
               dateRange={dateRange}
               onDateRange={setDateRange}
+              priceFilter={priceFilter}
+              onPriceChange={setPriceFilter}
+              venueSearch={venueSearch}
+              onVenueSearch={setVenueSearch}
             />
           )}
 
@@ -169,6 +229,8 @@ export default function Home() {
             <EventDetail
               event={selectedEvent}
               onClose={handleCloseEvent}
+              bookmarkStatus={bookmarks[selectedEvent.id]}
+              onBookmarkChange={handleBookmarkChange}
             />
           )}
         </div>
@@ -176,15 +238,23 @@ export default function Home() {
         {/* List view */}
         {view === "list" && (
           <div className="flex-1 relative">
-            <EventList events={events} onSelectEvent={handleSelectEvent} />
+            <EventList
+              events={filteredEvents}
+              onSelectEvent={handleSelectEvent}
+              bookmarks={bookmarks}
+            />
             <Filters
               timeFilter={timeFilter}
               activeCategories={activeCategories}
               onTimeChange={setTimeFilter}
               onCategoryToggle={handleCategoryToggle}
-              eventCount={events.length}
+              eventCount={filteredEvents.length}
               dateRange={dateRange}
               onDateRange={setDateRange}
+              priceFilter={priceFilter}
+              onPriceChange={setPriceFilter}
+              venueSearch={venueSearch}
+              onVenueSearch={setVenueSearch}
             />
           </div>
         )}
@@ -209,6 +279,14 @@ export default function Home() {
           />
         )}
 
+        {/* Saved events view */}
+        {view === "saved" && (
+          <SavedEvents
+            onSelectEvent={handleSelectEvent}
+            onBack={() => setView("map")}
+          />
+        )}
+
         {/* Fullscreen event detail — chat mode */}
         {selectedEvent && view === "chat" && (
           <div className="absolute inset-0 z-[60] bg-white overflow-y-auto animate-slide-up">
@@ -224,13 +302,15 @@ export default function Home() {
               event={selectedEvent}
               onClose={handleCloseEvent}
               embedded
+              bookmarkStatus={bookmarks[selectedEvent.id]}
+              onBookmarkChange={handleBookmarkChange}
             />
           </div>
         )}
       </div>
 
       {/* Bottom navigation */}
-      <nav className="flex items-center justify-around bg-white border-t border-gray-100 py-1 px-4 safe-bottom shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">
+      <nav className="flex items-center justify-around bg-white border-t border-gray-100 py-1 px-2 safe-bottom shadow-[0_-2px_10px_rgba(0,0,0,0.04)]">
         <button
           onClick={() => {
             setView("map");
@@ -238,12 +318,16 @@ export default function Home() {
             setChatMentionedEvents([]);
             setSelectedEvent(null);
           }}
-          className={`flex flex-col items-center gap-1 px-6 py-2.5 rounded-2xl transition ${
+          className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition ${
             view === "map" ? "text-gray-900 bg-gray-100" : "text-gray-400"
           }`}
         >
-          <span className="text-2xl">&#x1F5FA;&#xFE0F;</span>
-          <span className="text-[11px] font-semibold">Map</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/>
+            <line x1="8" y1="2" x2="8" y2="18"/>
+            <line x1="16" y1="6" x2="16" y2="22"/>
+          </svg>
+          <span className="text-[10px] font-semibold">Map</span>
         </button>
         <button
           onClick={() => {
@@ -252,30 +336,56 @@ export default function Home() {
             setChatMentionedEvents([]);
             setSelectedEvent(null);
           }}
-          className={`flex flex-col items-center gap-1 px-6 py-2.5 rounded-2xl transition ${
+          className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition ${
             view === "list" ? "text-gray-900 bg-gray-100" : "text-gray-400"
           }`}
         >
-          <span className="text-2xl">&#x1F4CB;</span>
-          <span className="text-[11px] font-semibold">Events</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+          <span className="text-[10px] font-semibold">Events</span>
+        </button>
+        <button
+          onClick={() => setView("saved")}
+          className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition relative ${
+            view === "saved" ? "text-gray-900 bg-gray-100" : "text-gray-400"
+          }`}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+          {Object.keys(bookmarks).length > 0 && (
+            <div className="absolute top-1.5 right-2 w-2 h-2 bg-emerald-500 rounded-full" />
+          )}
+          <span className="text-[10px] font-semibold">Saved</span>
         </button>
         <button
           onClick={() => setView("chat")}
-          className={`flex flex-col items-center gap-1 px-6 py-2.5 rounded-2xl transition ${
+          className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition ${
             view === "chat" ? "text-gray-900 bg-gray-100" : "text-gray-400"
           }`}
         >
-          <span className="text-2xl">&#x2728;</span>
-          <span className="text-[11px] font-semibold">Ask AI</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span className="text-[10px] font-semibold">Ask AI</span>
         </button>
         <button
           onClick={() => setView("profile")}
-          className={`flex flex-col items-center gap-1 px-6 py-2.5 rounded-2xl transition ${
+          className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition ${
             view === "profile" ? "text-gray-900 bg-gray-100" : "text-gray-400"
           }`}
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          <span className="text-[11px] font-semibold">Profile</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          <span className="text-[10px] font-semibold">Profile</span>
         </button>
       </nav>
     </main>

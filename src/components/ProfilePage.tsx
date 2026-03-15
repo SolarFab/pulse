@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Profile, CATEGORIES } from "@/lib/types";
+import NotificationSettings from "@/components/NotificationSettings";
 
 interface ProfilePageProps {
   onBack: () => void;
@@ -17,6 +18,7 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
   const [uploading, setUploading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [email, setEmail] = useState("");
+  const [showNotifications, setShowNotifications] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -93,9 +95,13 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
     });
   }
 
+  if (showNotifications) {
+    return <NotificationSettings onBack={() => setShowNotifications(false)} />;
+  }
+
   if (!profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#faf9f6]">
+      <div className="flex-1 flex items-center justify-center bg-[#faf9f6]">
         <p className="text-gray-400 text-sm">Loading...</p>
       </div>
     );
@@ -171,7 +177,7 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
         </div>
 
         {/* Genre preferences */}
-        <div className="mb-8">
+        <div className="mb-6">
           <label className="text-xs font-medium text-gray-500 mb-3 block">
             Favorite categories
           </label>
@@ -197,10 +203,29 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="w-full py-3 rounded-xl bg-[#1a1a1a] text-white font-medium text-base disabled:opacity-50 transition mb-4"
+          className="w-full py-3 rounded-xl bg-[#1a1a1a] text-white font-medium text-base disabled:opacity-50 transition mb-6"
         >
           {saving ? "Saving..." : saved ? "Saved!" : "Save changes"}
         </button>
+
+        {/* Settings links */}
+        <div className="bg-white rounded-2xl border border-gray-100 mb-6 overflow-hidden">
+          <button
+            onClick={() => setShowNotifications(true)}
+            className="w-full text-left px-4 py-3.5 flex items-center justify-between active:bg-gray-50 transition"
+          >
+            <div className="flex items-center gap-3">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              <span className="text-sm font-medium text-gray-900">Notifications</span>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+        </div>
 
         {/* Logout */}
         <button
