@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase/admin";
+export const dynamic = "force-dynamic";
 
 /**
  * Flexible event search endpoint for LLM function calling.
