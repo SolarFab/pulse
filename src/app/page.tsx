@@ -10,7 +10,7 @@ import ChatPanel from "@/components/ChatPanel";
 import CreateEvent from "@/components/CreateEvent";
 import ProfilePage from "@/components/ProfilePage";
 import Onboarding from "@/components/Onboarding";
-import { Event, TimeFilter } from "@/lib/types";
+import { Event, TimeFilter, CATEGORIES } from "@/lib/types";
 import type { DateRange } from "@/components/Filters";
 import { createClient } from "@/lib/supabase/client";
 import { BookmarkStatus, getMyBookmarks } from "@/lib/bookmarks";
@@ -36,6 +36,7 @@ export default function Home() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<Record<string, BookmarkStatus>>({});
+  const [venueEvents, setVenueEvents] = useState<Event[]>([]);
   const router = useRouter();
 
   // Check onboarding status + load bookmarks
@@ -113,10 +114,20 @@ export default function Home() {
   const handleSelectEvent = useCallback(
     (event: Event | null) => {
       setSelectedEvent(event);
+      setVenueEvents([]);
       setHighlightedEvent(null);
       if (event && view === "list") setView("map");
     },
     [view]
+  );
+
+  const handleSelectVenueEvents = useCallback(
+    (evts: Event[]) => {
+      setVenueEvents(evts.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()));
+      setSelectedEvent(null);
+      setHighlightedEvent(null);
+    },
+    []
   );
 
   const handleChatSelectEvent = useCallback((event: Event) => {
@@ -126,6 +137,7 @@ export default function Home() {
 
   const handleCloseEvent = useCallback(() => {
     setSelectedEvent(null);
+    setVenueEvents([]);
   }, []);
 
   const handleBookmarkChange = useCallback((eventId: string, status: BookmarkStatus) => {
@@ -161,6 +173,7 @@ export default function Home() {
             selectedEvent={selectedEvent}
             highlightedEvent={highlightedEvent}
             onSelectEvent={handleSelectEvent}
+            onSelectVenueEvents={handleSelectVenueEvents}
           />
 
           {/* Filters overlay */}
@@ -256,6 +269,61 @@ export default function Home() {
               bookmarkStatus={bookmarks[selectedEvent.id]}
               onBookmarkChange={handleBookmarkChange}
             />
+          )}
+
+          {/* Venue events panel — multiple events at same location */}
+          {venueEvents.length > 0 && !selectedEvent && view === "map" && !chatOpen && (
+            <div className="absolute bottom-0 left-0 right-0 z-50 animate-slide-up safe-bottom">
+              <div className="fixed inset-0 z-40" onClick={handleCloseEvent} />
+              <div className="relative z-50 bg-white rounded-t-3xl max-h-[65dvh] overflow-y-auto overscroll-contain shadow-[0_-4px_30px_rgba(0,0,0,0.1)]">
+                <div className="sticky top-0 bg-white flex justify-center pt-3 pb-2 z-10">
+                  <div className="w-9 h-1 bg-gray-300 rounded-full" />
+                </div>
+                <div className="px-4 pb-2">
+                  <h2 className="text-sm font-bold text-gray-900 mb-0.5">
+                    {venueEvents[0].venue_name}
+                  </h2>
+                  <p className="text-xs text-gray-400 mb-3">
+                    {venueEvents.length} events at this venue
+                  </p>
+                </div>
+                <div className="px-3 pb-5 space-y-2">
+                  {venueEvents.map((event) => {
+                    const cat = CATEGORIES[event.category] || CATEGORIES.social;
+                    return (
+                      <button
+                        key={event.id}
+                        onClick={() => {
+                          setSelectedEvent(event);
+                        }}
+                        className="w-full text-left bg-gray-50 rounded-2xl p-3.5 active:bg-gray-100 transition flex gap-3 border border-gray-100"
+                      >
+                        <div
+                          className="w-11 h-11 rounded-xl flex items-center justify-center text-lg shrink-0"
+                          style={{ background: cat.color + "20" }}
+                        >
+                          {cat.emoji}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-sm font-semibold text-gray-900 truncate">
+                            {event.title}
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            {new Date(event.start_time).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })}
+                            {" \u00B7 "}
+                            {new Date(event.start_time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                            {event.end_time && ` \u2013 ${new Date(event.end_time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`}
+                          </p>
+                          {event.price && (
+                            <p className="text-xs text-gray-400 mt-0.5">{event.price}</p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Fullscreen event detail — chat mode */}

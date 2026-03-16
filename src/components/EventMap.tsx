@@ -10,6 +10,7 @@ interface Props {
   selectedEvent: Event | null;
   highlightedEvent: Event | null;
   onSelectEvent: (event: Event | null) => void;
+  onSelectVenueEvents?: (events: Event[]) => void;
 }
 
 const BERLIN_CENTER: [number, number] = [13.405, 52.52];
@@ -24,6 +25,7 @@ export default function EventMap({
   selectedEvent,
   highlightedEvent,
   onSelectEvent,
+  onSelectVenueEvents,
 }: Props) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -31,16 +33,26 @@ export default function EventMap({
   const pulseAnimation = useRef<number | null>(null);
 
   const buildGeoJSON = useCallback(
-    (evts: Event[]): GeoJSON.FeatureCollection => ({
-      type: "FeatureCollection",
-      features: evts
-        .filter((e) => e.lat && e.lng)
-        .map((e) => ({
-          type: "Feature" as const,
-          geometry: {
-            type: "Point" as const,
-            coordinates: [e.lng!, e.lat!],
-          },
+    (evts: Event[]): GeoJSON.FeatureCollection => {
+      // Group events by location (rounded to ~10m) to show count badges
+      const locKey = (e: Event) => `${e.lat!.toFixed(4)},${e.lng!.toFixed(4)}`;
+      const geoEvents = evts.filter((e) => e.lat && e.lng);
+      const locCounts: Record<string, number> = {};
+      for (const e of geoEvents) {
+        const key = locKey(e);
+        locCounts[key] = (locCounts[key] || 0) + 1;
+      }
+      // Only show one pin per location (first event), with count
+      const seen = new Set<string>();
+      const features: GeoJSON.Feature[] = [];
+      for (const e of geoEvents) {
+        const key = locKey(e);
+        const isSelected = e.id === selectedEvent?.id;
+        if (!isSelected && seen.has(key)) continue;
+        if (!isSelected) seen.add(key);
+        features.push({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [e.lng!, e.lat!] },
           properties: {
             id: e.id,
             title: e.title,
@@ -48,10 +60,13 @@ export default function EventMap({
             category: e.category,
             color: (CATEGORIES[e.category] || CATEGORIES.social).color,
             emoji: (CATEGORIES[e.category] || CATEGORIES.social).emoji,
-            selected: e.id === selectedEvent?.id ? 1 : 0,
+            selected: isSelected ? 1 : 0,
+            count: locCounts[key] || 1,
           },
-        })),
-    }),
+        });
+      }
+      return { type: "FeatureCollection", features };
+    },
     [selectedEvent]
   );
 
@@ -120,6 +135,23 @@ export default function EventMap({
         },
       });
 
+      // Count badge for pins with multiple events
+      m.addLayer({
+        id: "events-count-layer",
+        type: "symbol",
+        source: SOURCE_ID,
+        filter: [">=", ["get", "count"], 2],
+        layout: {
+          "text-field": ["get", "count"],
+          "text-size": 11,
+          "text-font": ["Open Sans Bold"],
+          "text-allow-overlap": true,
+        },
+        paint: {
+          "text-color": "#ffffff",
+        },
+      });
+
       // Pulse source + layer for highlighted events
       m.addSource(PULSE_SOURCE_ID, {
         type: "geojson",
@@ -145,13 +177,23 @@ export default function EventMap({
       map.current = m;
     });
 
-    // Click on pin
+    // Click on pin — find all events at this venue
     m.on("click", LAYER_ID, (e) => {
       const feature = e.features?.[0];
       if (!feature) return;
       const id = feature.properties?.id;
       const evt = events.find((ev) => ev.id === id);
-      if (evt) onSelectEvent(evt);
+      if (!evt) return;
+      // Find all events at the same location
+      const locKey = `${evt.lat!.toFixed(4)},${evt.lng!.toFixed(4)}`;
+      const venueEvents = events.filter(
+        (ev) => ev.lat && ev.lng && `${ev.lat!.toFixed(4)},${ev.lng!.toFixed(4)}` === locKey
+      );
+      if (venueEvents.length > 1 && onSelectVenueEvents) {
+        onSelectVenueEvents(venueEvents);
+      } else {
+        onSelectEvent(evt);
+      }
     });
 
     m.on("click", SELECTED_LAYER_ID, () => {
@@ -226,12 +268,21 @@ export default function EventMap({
       if (!feature) return;
       const id = feature.properties?.id;
       const evt = events.find((ev) => ev.id === id);
-      if (evt) onSelectEvent(evt);
+      if (!evt) return;
+      const locKey = `${evt.lat!.toFixed(4)},${evt.lng!.toFixed(4)}`;
+      const venueEvents = events.filter(
+        (ev) => ev.lat && ev.lng && `${ev.lat!.toFixed(4)},${ev.lng!.toFixed(4)}` === locKey
+      );
+      if (venueEvents.length > 1 && onSelectVenueEvents) {
+        onSelectVenueEvents(venueEvents);
+      } else {
+        onSelectEvent(evt);
+      }
     };
 
     m.off("click", LAYER_ID, handler);
     m.on("click", LAYER_ID, handler);
-  }, [events, onSelectEvent]);
+  }, [events, onSelectEvent, onSelectVenueEvents]);
 
   // Fly to selected
   useEffect(() => {

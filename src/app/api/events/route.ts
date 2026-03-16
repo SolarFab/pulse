@@ -142,47 +142,60 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  let query = supabase
-    .from("events")
-    .select("id,title,venue_name,lat,lng,neighborhood,address,start_time,end_time,category,subcategory,tags,description,price,image_url,source,source_url");
+  const selectCols = "id,title,venue_name,lat,lng,neighborhood,address,start_time,end_time,category,subcategory,tags,description,price,image_url,source,source_url";
 
-  // Filter events within the time window:
-  // - Events starting within the window (start_time between start and end filter)
-  // - Events still ongoing (started before but end_time is after startFilter)
-  // Exclude: events with no end_time that started before the window
-  // For events with no end_time, assume max 18 hours duration
-  // (covers clubs like Berghain that run from Sat night to Sun afternoon)
-  const nullEndCutoff = new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString();
-
-  // Broad fetch: events starting within the window or recently before
-  query = query
-    .gte("start_time", nullEndCutoff)
-    .lte("start_time", endFilter);
-
-  if (categories) {
-    query = query.in("category", categories.split(","));
-  }
-
-  query = query.order("start_time", { ascending: true }).limit(1000);
-
-  const { data: rawData, error } = await query;
-
-  // Server-side filtering: remove events that have already ended
   const now = new Date();
   const windowStart = new Date(startFilter);
-  const data = (rawData || []).filter((e) => {
+  const windowEnd = new Date(endFilter);
+
+  // Query 1: Events starting within the time window
+  let q1 = supabase
+    .from("events")
+    .select(selectCols)
+    .gte("start_time", startFilter)
+    .lte("start_time", endFilter);
+
+  // Query 2: Ongoing events — started before the window but end_time extends into it
+  // This catches long-running exhibitions, multi-day festivals, and overnight club events
+  let q2 = supabase
+    .from("events")
+    .select(selectCols)
+    .lt("start_time", startFilter)
+    .gte("end_time", startFilter);
+
+  if (categories) {
+    q1 = q1.in("category", categories.split(","));
+    q2 = q2.in("category", categories.split(","));
+  }
+
+  q1 = q1.order("start_time", { ascending: true }).limit(1000);
+  q2 = q2.order("start_time", { ascending: true }).limit(200);
+
+  const [res1, res2] = await Promise.all([q1, q2]);
+  const error = res1.error || res2.error;
+
+  // Merge and deduplicate by id
+  const seen = new Set<string>();
+  const rawData: typeof res1.data = [];
+  for (const e of [...(res1.data || []), ...(res2.data || [])]) {
+    if (!seen.has(e.id)) {
+      seen.add(e.id);
+      rawData.push(e);
+    }
+  }
+
+  // Post-filter: remove events that have already ended
+  const data = rawData.filter((e) => {
     const start = new Date(e.start_time);
     if (e.end_time) {
       const end = new Date(e.end_time);
-      // Event has ended — only show if end is in the future
       if (end < now) return false;
-      // Event overlaps window: starts in window OR is still ongoing during window
-      return start >= windowStart || end >= windowStart;
+      return true;
     } else {
-      // No end_time: assume max 18h duration
+      // No end_time: assume max 18h duration, skip if assumed end has passed
       const assumedEnd = new Date(start.getTime() + 18 * 60 * 60 * 1000);
       if (assumedEnd < now) return false;
-      return start >= windowStart || assumedEnd >= windowStart;
+      return true;
     }
   });
 
