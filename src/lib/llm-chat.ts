@@ -88,16 +88,12 @@ export function removeApiKey() {
   localStorage.removeItem("openai_api_key");
 }
 
-interface ChatMessage {
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  tool_call_id?: string;
-}
-
 interface ToolCall {
   id: string;
   function: { name: string; arguments: string };
 }
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 async function executeToolCall(
   name: string,
