@@ -146,7 +146,6 @@ export async function GET(req: NextRequest) {
 
   const now = new Date();
   const windowStart = new Date(startFilter);
-  const windowEnd = new Date(endFilter);
 
   // Query 1: Events starting within the time window
   let q1 = supabase
