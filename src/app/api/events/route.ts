@@ -150,23 +150,41 @@ export async function GET(req: NextRequest) {
   // - Events starting within the window (start_time between start and end filter)
   // - Events still ongoing (started before but end_time is after startFilter)
   // Exclude: events with no end_time that started before the window
-  if (timeFilter === "now") {
-    query = query
-      .lte("start_time", startFilter)
-      .or(`end_time.gte.${endFilter},and(end_time.is.null,start_time.gte.${startFilter})`);
-  } else {
-    query = query
-      .lte("start_time", endFilter)
-      .or(`and(start_time.gte.${startFilter}),end_time.gte.${startFilter}`);
-  }
+  // For events with no end_time, assume max 18 hours duration
+  // (covers clubs like Berghain that run from Sat night to Sun afternoon)
+  const nullEndCutoff = new Date(Date.now() - 18 * 60 * 60 * 1000).toISOString();
+
+  // Broad fetch: events starting within the window or recently before
+  query = query
+    .gte("start_time", nullEndCutoff)
+    .lte("start_time", endFilter);
 
   if (categories) {
     query = query.in("category", categories.split(","));
   }
 
-  query = query.order("start_time", { ascending: true }).limit(500);
+  query = query.order("start_time", { ascending: true }).limit(1000);
 
-  const { data, error } = await query;
+  const { data: rawData, error } = await query;
+
+  // Server-side filtering: remove events that have already ended
+  const now = new Date();
+  const windowStart = new Date(startFilter);
+  const data = (rawData || []).filter((e) => {
+    const start = new Date(e.start_time);
+    if (e.end_time) {
+      const end = new Date(e.end_time);
+      // Event has ended — only show if end is in the future
+      if (end < now) return false;
+      // Event overlaps window: starts in window OR is still ongoing during window
+      return start >= windowStart || end >= windowStart;
+    } else {
+      // No end_time: assume max 18h duration
+      const assumedEnd = new Date(start.getTime() + 18 * 60 * 60 * 1000);
+      if (assumedEnd < now) return false;
+      return start >= windowStart || assumedEnd >= windowStart;
+    }
+  });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

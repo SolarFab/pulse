@@ -37,7 +37,7 @@ export const CATEGORIES: Record<
   entertainment: { emoji: "\uD83C\uDFAD", color: "#ec4899", label: "Entertainment" },
   wellness: { emoji: "\uD83E\uDDD8", color: "#10b981", label: "Wellness" },
   social: { emoji: "\uD83C\uDFAF", color: "#f97316", label: "Social" },
-  market: { emoji: "\uD83D\uDECD\uFE0F", color: "#a78bfa", label: "Markets" },
+  market: { emoji: "\uD83D\uDECD\uFE0F", color: "#1e3a5f", label: "Markets" },
 };
 
 export type TimeFilter =

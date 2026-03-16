@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
   const systemPrompt = SYSTEM_PROMPT + `\nCurrent time in Berlin: ${berlinTime}\nIMPORTANT: When the user asks about "right now" or "jetzt", only recommend events that have already started or start within the next 30 minutes. Do NOT recommend events starting hours later.\n\n` + eventsContext;
 
   const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 1024,
     system: systemPrompt,
     messages: messages.map((m: { role: string; content: string }) => ({
