@@ -155,21 +155,17 @@ export async function GET(req: NextRequest) {
     .lte("start_time", endFilter);
 
   // Query 2: Ongoing events — started before the window but end_time extends into it
-  // For short windows (today/tonight/tomorrow), only look back 48h to catch overnight
-  // clubs but not months-old exhibitions. For longer windows (weekend/custom), include all.
-  const isShortWindow = ["now", "2hours", "tonight", "tomorrow"].includes(timeFilter)
-    || (timeFilter === "today" || !["weekend", "custom"].includes(timeFilter));
-  const ongoingCutoff = isShortWindow
-    ? new Date(windowStart.getTime() - 48 * 60 * 60 * 1000).toISOString()
-    : undefined;
+  // Limit lookback: 48h for short windows (overnight clubs), 7 days for weekend/custom
+  // (multi-day festivals). Never pull in months-old exhibitions.
+  const isShortWindow = ["now", "2hours", "tonight", "tomorrow", "today"].includes(timeFilter);
+  const lookbackMs = isShortWindow ? 48 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+  const ongoingCutoff = new Date(windowStart.getTime() - lookbackMs).toISOString();
   let q2 = supabase
     .from("events")
     .select(selectCols)
     .lt("start_time", startFilter)
+    .gte("start_time", ongoingCutoff)
     .gte("end_time", startFilter);
-  if (ongoingCutoff) {
-    q2 = q2.gte("start_time", ongoingCutoff);
-  }
 
   if (categories) {
     q1 = q1.in("category", categories.split(","));
