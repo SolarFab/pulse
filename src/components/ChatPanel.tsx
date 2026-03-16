@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Event } from "@/lib/types";
+import { getApiKey, setApiKey, sendChatMessage } from "@/lib/llm-chat";
 
 interface Message {
   role: "user" | "assistant";
@@ -24,31 +25,13 @@ const QUICK_PROMPTS = [
   "Chill spots with friends",
 ];
 
-// Extract event IDs from AI text like [abc123] and match against events
-function extractMentionedEvents(text: string, events: Event[]): Event[] {
-  const matched: Event[] = [];
-  // Match [EVENT_ID] patterns — IDs are UUIDs or short hashes
-  const idRegex = /\[([a-f0-9-]{8,36})\]/gi;
-  let match;
-  while ((match = idRegex.exec(text)) !== null) {
-    const id = match[1];
-    const evt = events.find((e) => e.id === id);
-    if (evt && !matched.some((m) => m.id === evt.id)) {
-      matched.push(evt);
-    }
-  }
-  return matched;
-}
-
 // Find event by ID or fuzzy title match
 function findEvent(title: string, afterText: string, allEvents: Event[]): Event | null {
-  // First try to extract [ID] right after the title/venue line
   const idMatch = afterText.match(/\[([a-f0-9-]{8,36})\]/i);
   if (idMatch) {
     const evt = allEvents.find((e) => e.id === idMatch[1]);
     if (evt) return evt;
   }
-  // Fallback: fuzzy title match
   return allEvents.find(
     (e) =>
       e.title.toLowerCase().includes(title.toLowerCase()) ||
@@ -57,14 +40,12 @@ function findEvent(title: string, afterText: string, allEvents: Event[]): Event 
 }
 
 // Parse event titles from AI response and make them tappable
-// Also strips [EVENT_ID] from visible text
 function renderContent(
   text: string,
   allEvents: Event[],
   onTap: (event: Event) => void,
   onHover: (event: Event | null) => void
 ) {
-  // Match **Title** optionally followed by @ Venue and [ID]
   const regex = /\*\*(.+?)\*\*(\s*@\s*[^\n\[*]+)?(\s*\[[a-f0-9-]+\])?/gi;
   const parts: (string | { title: string; venue: string; event: Event | null })[] = [];
   let lastIndex = 0;
@@ -72,7 +53,6 @@ function renderContent(
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      // Strip any standalone [ID] from plain text too
       parts.push(text.slice(lastIndex, match.index).replace(/\s*\[[a-f0-9-]{8,36}\]/gi, ""));
     }
     const title = match[1].trim();
@@ -87,7 +67,6 @@ function renderContent(
   }
 
   if (parts.length === 1 && typeof parts[0] === "string") {
-    // Still strip IDs from plain text
     return <>{(parts[0] as string).replace(/\s*\[[a-f0-9-]{8,36}\]/gi, "")}</>;
   }
 
@@ -124,6 +103,51 @@ function renderContent(
   );
 }
 
+function ApiKeySetup({ onSaved }: { onSaved: () => void }) {
+  const [key, setKey] = useState("");
+
+  return (
+    <div className="px-4 py-6 text-center space-y-3">
+      <div className="text-2xl mb-1">{"🔑"}</div>
+      <h3 className="text-sm font-bold text-gray-900">Connect your AI</h3>
+      <p className="text-xs text-gray-500 leading-relaxed">
+        Enter your OpenAI API key to power the chat. Your key stays in your
+        browser and is never sent to our servers.
+      </p>
+      <input
+        type="password"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+        placeholder="sk-..."
+        className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
+      />
+      <button
+        onClick={() => {
+          if (key.trim().startsWith("sk-")) {
+            setApiKey(key.trim());
+            onSaved();
+          }
+        }}
+        disabled={!key.trim().startsWith("sk-")}
+        className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-semibold disabled:opacity-30 transition"
+      >
+        Save & Start Chatting
+      </button>
+      <p className="text-[10px] text-gray-400">
+        Get a key at{" "}
+        <a
+          href="https://platform.openai.com/api-keys"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline"
+        >
+          platform.openai.com/api-keys
+        </a>
+      </p>
+    </div>
+  );
+}
+
 export default function ChatPanel({
   events,
   onHighlightEvent,
@@ -133,24 +157,26 @@ export default function ChatPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
   const [chatEvents, setChatEvents] = useState<Event[]>([]);
   const messagesEnd = useRef<HTMLDivElement>(null);
 
-  // Combined events: frontend events + any fetched chat events
   const allEvents = [...events, ...chatEvents.filter((ce) => !events.some((e) => e.id === ce.id))];
+
+  useEffect(() => {
+    setHasKey(!!getApiKey());
+  }, []);
 
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // When AI mentions event IDs, fetch those events if not already loaded
-  // Only run after streaming completes to avoid partial ID matches
+  // Fetch mentioned event IDs after streaming
   useEffect(() => {
     if (!onMentionedEventsChange || streaming) return;
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (!lastAssistant?.content) return;
 
-    // Extract IDs from the text
     const idRegex = /\[([a-f0-9-]{8,36})\]/gi;
     const ids: string[] = [];
     let m;
@@ -158,14 +184,8 @@ export default function ChatPanel({
       if (!ids.includes(m[1])) ids.push(m[1]);
     }
 
-    if (ids.length === 0) {
-      // Fallback to fuzzy title matching
-      const mentioned = extractMentionedEvents(lastAssistant.content, allEvents);
-      onMentionedEventsChange(mentioned);
-      return;
-    }
+    if (ids.length === 0) return;
 
-    // Check which IDs we already have
     const found = ids.map((id) => allEvents.find((e) => e.id === id)).filter(Boolean) as Event[];
     const missingIds = ids.filter((id) => !allEvents.some((e) => e.id === id));
 
@@ -174,7 +194,6 @@ export default function ChatPanel({
       return;
     }
 
-    // Fetch missing events by ID
     fetch(`/api/events?ids=${missingIds.join(",")}`)
       .then((res) => res.json())
       .then((data) => {
@@ -199,56 +218,35 @@ export default function ChatPanel({
       setInput("");
       setStreaming(true);
 
-      const assistantMsg: Message = { role: "assistant", content: "" };
-      setMessages([...newMessages, assistantMsg]);
+      // Add empty assistant message for streaming
+      setMessages([...newMessages, { role: "assistant", content: "" }]);
+
+      let fullText = "";
 
       try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: newMessages }),
-        });
-
-        const reader = res.body?.getReader();
-        const decoder = new TextDecoder();
-        let fullText = "";
-
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            const chunk = decoder.decode(value);
-            const lines = chunk.split("\n");
-
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const data = line.slice(6);
-                if (data === "[DONE]") break;
-                try {
-                  const parsed = JSON.parse(data);
-                  fullText += parsed.text;
-                  setMessages((prev) => {
-                    const updated = [...prev];
-                    updated[updated.length - 1] = {
-                      role: "assistant",
-                      content: fullText,
-                    };
-                    return updated;
-                  });
-                } catch {
-                  // skip
-                }
-              }
-            }
+        await sendChatMessage(
+          newMessages,
+          (chunk) => {
+            fullText += chunk;
+            setMessages((prev) => {
+              const updated = [...prev];
+              updated[updated.length - 1] = {
+                role: "assistant",
+                content: fullText,
+              };
+              return updated;
+            });
           }
-        }
-      } catch {
+        );
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : "Something went wrong";
         setMessages((prev) => {
           const updated = [...prev];
           updated[updated.length - 1] = {
             role: "assistant",
-            content: "Sorry, something went wrong. Try again!",
+            content: errorMsg.includes("API key")
+              ? "Invalid API key. Please update it in your profile settings."
+              : `Sorry, something went wrong: ${errorMsg}`,
           };
           return updated;
         });
@@ -259,9 +257,19 @@ export default function ChatPanel({
     [messages, streaming]
   );
 
+  if (!hasKey) {
+    return (
+      <div className="flex flex-col h-full bg-white/95 backdrop-blur-sm rounded-t-2xl">
+        <div className="flex justify-center pt-2 pb-1">
+          <div className="w-9 h-1 bg-gray-300 rounded-full" />
+        </div>
+        <ApiKeySetup onSaved={() => setHasKey(true)} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-white/95 backdrop-blur-sm rounded-t-2xl shadow-[0_-4px_30px_rgba(0,0,0,0.08)] border-t border-gray-100">
-      {/* Handle bar */}
       <div className="flex justify-center pt-2 pb-1">
         <div className="w-9 h-1 bg-gray-300 rounded-full" />
       </div>
