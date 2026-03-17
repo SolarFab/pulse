@@ -234,6 +234,8 @@ function EventContent({
             Calendar
           </button>
           {showCalPicker && (
+            <>
+            <div className="fixed inset-0 z-[9]" onClick={() => setShowCalPicker(false)} />
             <div className="absolute top-full left-0 right-0 mt-1.5 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-10">
               <button onClick={() => { openGoogleCalendar(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium">
                 <span className="text-base">G</span> Google Calendar
@@ -248,6 +250,7 @@ function EventContent({
                 <span className="text-base">+</span> Other (.ics)
               </button>
             </div>
+            </>
           )}
         </div>
         <button
