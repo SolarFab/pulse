@@ -94,35 +94,21 @@ function EventContent({
   }
 
   function handleSaveToCalendar(evt: Event) {
-    const toICS = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const start = toICS(evt.start_time);
-    const end = evt.end_time ? toICS(evt.end_time) : toICS(new Date(new Date(evt.start_time).getTime() + 2 * 3600000).toISOString());
+    const fmt = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const start = fmt(evt.start_time);
+    const end = evt.end_time ? fmt(evt.end_time) : fmt(new Date(new Date(evt.start_time).getTime() + 2 * 3600000).toISOString());
     const location = [evt.venue_name, evt.address].filter(Boolean).join(", ");
-    const desc = (evt.description || "").slice(0, 500).replace(/\n/g, "\\n");
+    const desc = evt.source_url ? `${(evt.description || "").slice(0, 300)}\n\n${evt.source_url}` : (evt.description || "").slice(0, 300);
 
-    const ics = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//Whatsupp//Event//EN",
-      "BEGIN:VEVENT",
-      `DTSTART:${start}`,
-      `DTEND:${end}`,
-      `SUMMARY:${evt.title}`,
-      `LOCATION:${location}`,
-      `DESCRIPTION:${desc}`,
-      evt.source_url ? `URL:${evt.source_url}` : "",
-      `UID:${evt.id}@whatsupp.app`,
-      "END:VEVENT",
-      "END:VCALENDAR",
-    ].filter(Boolean).join("\r\n");
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: evt.title,
+      dates: `${start}/${end}`,
+      location,
+      details: desc,
+    });
 
-    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${evt.title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40)}.ics`;
-    a.click();
-    URL.revokeObjectURL(url);
+    window.open(`https://calendar.google.com/calendar/render?${params.toString()}`, "_blank");
   }
 
   async function handleShare() {
