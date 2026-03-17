@@ -229,7 +229,7 @@ function EventContent({
                 <span className="text-base">O</span> Outlook
               </button>
               <button onClick={() => { downloadICS(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium border-t border-gray-50">
-                <span className="text-base">A</span> Apple Calendar (.ics)
+                <span className="text-base">+</span> Other (.ics)
               </button>
             </div>
           )}
