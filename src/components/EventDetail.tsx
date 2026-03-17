@@ -67,6 +67,7 @@ function EventContent({
 }) {
   const [bmStatus, setBmStatus] = useState<BookmarkStatus>(bookmarkStatus || null);
   const [counts, setCounts] = useState<{ going: number; interested: number }>({ going: 0, interested: 0 });
+  const [showCalPicker, setShowCalPicker] = useState(false);
 
   useEffect(() => {
     setBmStatus(bookmarkStatus || null);
@@ -93,22 +94,44 @@ function EventContent({
     });
   }
 
-  function handleSaveToCalendar(evt: Event) {
+  function calendarData(evt: Event) {
     const fmt = (iso: string) => new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const start = fmt(evt.start_time);
     const end = evt.end_time ? fmt(evt.end_time) : fmt(new Date(new Date(evt.start_time).getTime() + 2 * 3600000).toISOString());
     const location = [evt.venue_name, evt.address].filter(Boolean).join(", ");
     const desc = evt.source_url ? `${(evt.description || "").slice(0, 300)}\n\n${evt.source_url}` : (evt.description || "").slice(0, 300);
+    return { start, end, location, desc };
+  }
 
-    const params = new URLSearchParams({
-      action: "TEMPLATE",
-      text: evt.title,
-      dates: `${start}/${end}`,
-      location,
-      details: desc,
-    });
-
+  function openGoogleCalendar(evt: Event) {
+    const { start, end, location, desc } = calendarData(evt);
+    const params = new URLSearchParams({ action: "TEMPLATE", text: evt.title, dates: `${start}/${end}`, location, details: desc });
     window.open(`https://calendar.google.com/calendar/render?${params.toString()}`, "_blank");
+  }
+
+  function openOutlookCalendar(evt: Event) {
+    const { location, desc } = calendarData(evt);
+    const startISO = new Date(evt.start_time).toISOString();
+    const endISO = evt.end_time ? new Date(evt.end_time).toISOString() : new Date(new Date(evt.start_time).getTime() + 2 * 3600000).toISOString();
+    const params = new URLSearchParams({ path: "/calendar/action/compose", rru: "addevent", subject: evt.title, startdt: startISO, enddt: endISO, location, body: desc });
+    window.open(`https://outlook.live.com/calendar/0/action/compose?${params.toString()}`, "_blank");
+  }
+
+  function downloadICS(evt: Event) {
+    const { start, end, location, desc } = calendarData(evt);
+    const ics = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Whatsupp//Event//EN", "BEGIN:VEVENT",
+      `DTSTART:${start}`, `DTEND:${end}`, `SUMMARY:${evt.title}`, `LOCATION:${location}`,
+      `DESCRIPTION:${desc.replace(/\n/g, "\\n")}`, evt.source_url ? `URL:${evt.source_url}` : "",
+      `UID:${evt.id}@whatsupp.app`, "END:VEVENT", "END:VCALENDAR",
+    ].filter(Boolean).join("\r\n");
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${evt.title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40)}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleShare() {
@@ -182,20 +205,35 @@ function EventContent({
           </svg>
           {bmStatus === "interested" ? "Saved!" : "Interested"}
         </button>
-        <button
-          onClick={() => handleSaveToCalendar(event)}
-          className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition flex items-center justify-center gap-1.5 bg-gray-100 text-gray-600 active:bg-gray-200"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-            <line x1="16" y1="2" x2="16" y2="6"/>
-            <line x1="8" y1="2" x2="8" y2="6"/>
-            <line x1="3" y1="10" x2="21" y2="10"/>
-            <line x1="12" y1="14" x2="12" y2="18"/>
-            <line x1="10" y1="16" x2="14" y2="16"/>
-          </svg>
-          Save to Calendar
-        </button>
+        <div className="flex-1 relative">
+          <button
+            onClick={() => setShowCalPicker(!showCalPicker)}
+            className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition flex items-center justify-center gap-1.5 bg-gray-100 text-gray-600 active:bg-gray-200"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+              <line x1="12" y1="14" x2="12" y2="18"/>
+              <line x1="10" y1="16" x2="14" y2="16"/>
+            </svg>
+            Calendar
+          </button>
+          {showCalPicker && (
+            <div className="absolute bottom-full left-0 right-0 mb-1.5 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-10">
+              <button onClick={() => { openGoogleCalendar(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium">
+                <span className="text-base">G</span> Google Calendar
+              </button>
+              <button onClick={() => { openOutlookCalendar(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium border-t border-gray-50">
+                <span className="text-base">O</span> Outlook
+              </button>
+              <button onClick={() => { downloadICS(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium border-t border-gray-50">
+                <span className="text-base">A</span> Apple Calendar (.ics)
+              </button>
+            </div>
+          )}
+        </div>
         <button
           onClick={handleShare}
           className="py-2.5 px-4 rounded-xl bg-gray-100 text-gray-600 active:bg-gray-200 transition"
