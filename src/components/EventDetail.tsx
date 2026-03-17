@@ -171,7 +171,7 @@ function EventContent({
       <div className="flex gap-2 mb-3">
         <button
           onClick={() => handleBookmark("interested")}
-          className={`py-2.5 px-4 rounded-xl text-[13px] font-semibold transition flex items-center justify-center gap-1.5 ${
+          className={`flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition flex items-center justify-center gap-1.5 ${
             bmStatus === "interested"
               ? "bg-amber-500 text-white"
               : "bg-gray-100 text-gray-600 active:bg-gray-200"
