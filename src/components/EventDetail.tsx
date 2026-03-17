@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Event, CATEGORIES } from "@/lib/types";
 import { BookmarkStatus, toggleBookmark, getEventCounts } from "@/lib/bookmarks";
 
@@ -199,9 +199,22 @@ function EventContent({
         {event.neighborhood && ` \u00B7 ${event.neighborhood}`}
       </p>
 
-      <p className="text-[13px] text-gray-600 mb-3 font-medium">
+      <p className="text-[13px] text-gray-600 mb-2 font-medium">
         {smartDateLabel(event.start_time, event.end_time)}
       </p>
+
+      {event.tags && event.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {event.tags.map((tag) => (
+            <span
+              key={tag}
+              className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500"
+            >
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Bookmark + Calendar + Share actions */}
       <div className="flex gap-2 mb-3">
@@ -289,19 +302,6 @@ function EventContent({
         <p className="text-[11px] text-gray-400 mb-3">{event.address}</p>
       )}
 
-      {event.tags && event.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {event.tags.map((tag) => (
-            <span
-              key={tag}
-              className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500"
-            >
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
-
       {/* Action buttons */}
       <div className="flex gap-2">
         {event.source_url && (
@@ -335,6 +335,48 @@ function EventContent({
 
 export default function EventDetail({ event, onClose, embedded, bookmarkStatus, onBookmarkChange }: Props) {
   const cat = CATEGORIES[event.category] || CATEGORIES.social;
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef(0);
+  const dragDelta = useRef(0);
+  const isDragging = useRef(false);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    // Only allow drag when scrolled to top
+    if (sheet.scrollTop > 0) return;
+    dragStartY.current = e.touches[0].clientY;
+    isDragging.current = true;
+    dragDelta.current = 0;
+  }, []);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging.current) return;
+    const delta = e.touches[0].clientY - dragStartY.current;
+    if (delta < 0) { dragDelta.current = 0; return; } // only drag down
+    dragDelta.current = delta;
+    if (sheetRef.current) {
+      sheetRef.current.style.transform = `translateY(${delta}px)`;
+      sheetRef.current.style.transition = "none";
+    }
+  }, []);
+
+  const onTouchEnd = useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    if (sheetRef.current) {
+      if (dragDelta.current > 80) {
+        // Swipe far enough — close
+        sheetRef.current.style.transition = "transform 0.2s ease-out";
+        sheetRef.current.style.transform = "translateY(100%)";
+        setTimeout(onClose, 200);
+      } else {
+        // Snap back
+        sheetRef.current.style.transition = "transform 0.2s ease-out";
+        sheetRef.current.style.transform = "translateY(0)";
+      }
+    }
+  }, [onClose]);
 
   if (embedded) {
     return (
@@ -348,8 +390,14 @@ export default function EventDetail({ event, onClose, embedded, bookmarkStatus, 
     <div className="absolute bottom-0 left-0 right-0 z-50 animate-slide-up safe-bottom">
       <div className="fixed inset-0 z-40" onClick={onClose} />
 
-      <div className="relative z-50 bg-white rounded-t-3xl max-h-[65dvh] overflow-y-auto overscroll-contain shadow-[0_-4px_30px_rgba(0,0,0,0.1)]">
-        <div className="sticky top-0 bg-white flex justify-center pt-3 pb-2 z-10">
+      <div
+        ref={sheetRef}
+        className="relative z-50 bg-white rounded-t-3xl max-h-[65dvh] overflow-y-auto overscroll-contain shadow-[0_-4px_30px_rgba(0,0,0,0.1)]"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        <div className="sticky top-0 bg-white flex justify-center pt-3 pb-2 z-10 cursor-grab">
           <div className="w-9 h-1 bg-gray-300 rounded-full" />
         </div>
 
