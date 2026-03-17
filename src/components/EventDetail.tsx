@@ -117,14 +117,37 @@ function EventContent({
     window.open(`https://outlook.live.com/calendar/0/action/compose?${params.toString()}`, "_blank");
   }
 
-  function downloadICS(evt: Event) {
+  function buildICS(evt: Event): string {
     const { start, end, location, desc } = calendarData(evt);
-    const ics = [
+    return [
       "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Whatsupp//Event//EN", "BEGIN:VEVENT",
       `DTSTART:${start}`, `DTEND:${end}`, `SUMMARY:${evt.title}`, `LOCATION:${location}`,
       `DESCRIPTION:${desc.replace(/\n/g, "\\n")}`, evt.source_url ? `URL:${evt.source_url}` : "",
       `UID:${evt.id}@whatsupp.app`, "END:VEVENT", "END:VCALENDAR",
     ].filter(Boolean).join("\r\n");
+  }
+
+  function openAppleCalendar(evt: Event) {
+    const ics = buildICS(evt);
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    // Open as a link (not download) — triggers native calendar prompt on iOS/macOS
+    window.open(url, "_self");
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  function sendCalendarInvite(evt: Event) {
+    const date = `${formatDate(evt.start_time)} ${formatTime(evt.start_time)}`;
+    const location = [evt.venue_name, evt.address].filter(Boolean).join(", ");
+    const subject = encodeURIComponent(`Let's go: ${evt.title}`);
+    const body = encodeURIComponent(
+      `Hey! Check out this event:\n\n${evt.title}\n${date}\n${location}\n\n${evt.description ? evt.description.slice(0, 200) + "\n\n" : ""}${evt.source_url || ""}`
+    );
+    window.open(`mailto:?subject=${subject}&body=${body}`, "_self");
+  }
+
+  function downloadICS(evt: Event) {
+    const ics = buildICS(evt);
     const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -227,6 +250,13 @@ function EventContent({
               </button>
               <button onClick={() => { openOutlookCalendar(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium border-t border-gray-50">
                 <span className="text-base">O</span> Outlook
+              </button>
+              <button onClick={() => { openAppleCalendar(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium border-t border-gray-50">
+                <span className="text-base">&#63743;</span> Apple Calendar
+              </button>
+              <button onClick={() => { sendCalendarInvite(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium border-t border-gray-50">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,7 12,13 2,7"/></svg>
+                Send via Email
               </button>
               <button onClick={() => { downloadICS(event); setShowCalPicker(false); }} className="w-full text-left px-3.5 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 active:bg-gray-100 flex items-center gap-2.5 font-medium border-t border-gray-50">
                 <span className="text-base">+</span> Other (.ics)
