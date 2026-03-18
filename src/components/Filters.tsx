@@ -238,10 +238,10 @@ export default function Filters({
   return (
     <div className="absolute top-0 left-0 right-0 z-40 pointer-events-none">
       {/* Backdrop — closes dropdown on tap outside */}
-      {dropdownOpen && (
+      {(dropdownOpen || subDropdown) && (
         <div
           className="fixed inset-0 z-40 pointer-events-auto"
-          onClick={closeAll}
+          onClick={() => { closeAll(); setSubDropdown(null); }}
         />
       )}
 
@@ -447,36 +447,30 @@ export default function Filters({
 
           {/* Subcategory dropdown — rendered outside overflow container */}
           {subDropdown && SUBCATEGORIES[subDropdown] && (
-            <>
-              <div
-                className="fixed inset-0 z-[100] pointer-events-auto"
-                onClick={() => setSubDropdown(null)}
-              />
-              <div className="absolute top-full mt-1.5 bg-white border border-gray-100 rounded-xl py-1 shadow-lg z-[101] pointer-events-auto" style={{ left: `${subDropdownLeft}px`, width: "auto", maxWidth: "160px" }}>
-                {SUBCATEGORIES[subDropdown].map((sub) => {
-                  const isSelected = sub.tag === "" ? !activeSubtag : activeSubtag === sub.tag;
-                  return (
-                    <button
-                      key={sub.tag}
-                      onClick={() => {
-                        onSubtagSelect(subDropdown, sub.tag || null);
-                        setSubDropdown(null);
-                      }}
-                      className={`w-full text-left px-3 py-1.5 text-[12px] transition active:bg-gray-50 whitespace-nowrap ${
-                        isSelected
-                          ? "text-gray-900 font-semibold"
-                          : "text-gray-500"
-                      }`}
-                    >
-                      {sub.label}
-                      {isSelected && (
-                        <span className="ml-2 text-emerald-500 font-bold">✓</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
+            <div className="absolute top-full mt-1.5 bg-white border border-gray-100 rounded-xl py-1 shadow-lg z-[101] pointer-events-auto" style={{ left: `${subDropdownLeft}px`, width: "auto", maxWidth: "160px" }}>
+              {SUBCATEGORIES[subDropdown].map((sub) => {
+                const isSelected = sub.tag === "" ? !activeSubtag : activeSubtag === sub.tag;
+                return (
+                  <button
+                    key={sub.tag}
+                    onClick={() => {
+                      onSubtagSelect(subDropdown, sub.tag || null);
+                      setSubDropdown(null);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 text-[12px] transition active:bg-gray-50 whitespace-nowrap ${
+                      isSelected
+                        ? "text-gray-900 font-semibold"
+                        : "text-gray-500"
+                    }`}
+                  >
+                    {sub.label}
+                    {isSelected && (
+                      <span className="ml-2 text-emerald-500 font-bold">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
