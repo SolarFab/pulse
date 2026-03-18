@@ -61,13 +61,16 @@ export const SUBCATEGORIES: Record<string, { label: string; tag: string }[]> = {
     { label: "Tasting", tag: "tasting" },
     { label: "Pop-up", tag: "pop-up" },
     { label: "Dining Event", tag: "dining-event" },
+    { label: "Food Market", tag: "food-market" },
+    { label: "Farmers Market", tag: "weekly-market" },
   ],
   markets: [
     { label: "All", tag: "" },
     { label: "Flea Market", tag: "flea-market" },
-    { label: "Weekly Market", tag: "weekly-market" },
     { label: "Design Market", tag: "design-market" },
-    { label: "Food Market", tag: "food-market" },
+    { label: "Pop-up Fashion", tag: "pop-up-fashion" },
+    { label: "Secondhand", tag: "secondhand" },
+    { label: "Craft Market", tag: "craft-market" },
   ],
   workshops: [
     { label: "All", tag: "" },
