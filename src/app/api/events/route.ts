@@ -74,6 +74,7 @@ export async function GET(req: NextRequest) {
 
   const timeFilter = params.get("time") || "today";
   const categories = params.get("categories");
+  const tag = params.get("tag"); // subtag filter (e.g., "jazz")
   const dateFrom = params.get("from"); // YYYY-MM-DD
   const dateTo = params.get("to"); // YYYY-MM-DD
 
@@ -170,6 +171,12 @@ export async function GET(req: NextRequest) {
   if (categories) {
     q1 = q1.in("category", categories.split(","));
     q2 = q2.in("category", categories.split(","));
+  }
+
+  if (tag) {
+    // Filter by subcategory column (e.g., "jazz-blues", "electronic")
+    q1 = q1.eq("subcategory", tag);
+    q2 = q2.eq("subcategory", tag);
   }
 
   q1 = q1.order("start_time", { ascending: true }).limit(1000);

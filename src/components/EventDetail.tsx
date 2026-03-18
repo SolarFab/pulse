@@ -334,7 +334,7 @@ function EventContent({
 }
 
 export default function EventDetail({ event, onClose, embedded, bookmarkStatus, onBookmarkChange }: Props) {
-  const cat = CATEGORIES[event.category] || CATEGORIES.social;
+  const cat = CATEGORIES[event.category] || CATEGORIES.culture;
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef(0);
   const dragDelta = useRef(0);
@@ -343,7 +343,6 @@ export default function EventDetail({ event, onClose, embedded, bookmarkStatus, 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     const sheet = sheetRef.current;
     if (!sheet) return;
-    // Only allow drag when scrolled to top
     if (sheet.scrollTop > 0) return;
     dragStartY.current = e.touches[0].clientY;
     isDragging.current = true;
@@ -353,7 +352,7 @@ export default function EventDetail({ event, onClose, embedded, bookmarkStatus, 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     if (!isDragging.current) return;
     const delta = e.touches[0].clientY - dragStartY.current;
-    if (delta < 0) { dragDelta.current = 0; return; } // only drag down
+    if (delta < 0) { dragDelta.current = 0; return; }
     dragDelta.current = delta;
     if (sheetRef.current) {
       sheetRef.current.style.transform = `translateY(${delta}px)`;
@@ -365,13 +364,11 @@ export default function EventDetail({ event, onClose, embedded, bookmarkStatus, 
     if (!isDragging.current) return;
     isDragging.current = false;
     if (sheetRef.current) {
-      if (dragDelta.current > 80) {
-        // Swipe far enough — close
+      if (dragDelta.current > 30) {
         sheetRef.current.style.transition = "transform 0.2s ease-out";
         sheetRef.current.style.transform = "translateY(100%)";
         setTimeout(onClose, 200);
       } else {
-        // Snap back
         sheetRef.current.style.transition = "transform 0.2s ease-out";
         sheetRef.current.style.transform = "translateY(0)";
       }
@@ -392,16 +389,20 @@ export default function EventDetail({ event, onClose, embedded, bookmarkStatus, 
 
       <div
         ref={sheetRef}
-        className="relative z-50 bg-white rounded-t-3xl max-h-[65dvh] overflow-y-auto overscroll-contain shadow-[0_-4px_30px_rgba(0,0,0,0.1)]"
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
+        className="relative z-50 bg-white rounded-t-3xl max-h-[65dvh] flex flex-col shadow-[0_-4px_30px_rgba(0,0,0,0.1)]"
       >
-        <div className="sticky top-0 bg-white flex justify-center pt-3 pb-2 z-10 cursor-grab">
+        {/* Handle bar — swipe target */}
+        <div
+          className="flex justify-center pt-3 pb-2 cursor-grab shrink-0"
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+        >
           <div className="w-9 h-1 bg-gray-300 rounded-full" />
         </div>
 
-        <div className="px-4 pb-5">
+        {/* Scrollable content */}
+        <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 px-4 pb-5">
           <EventContent event={event} cat={cat} bookmarkStatus={bookmarkStatus} onBookmarkChange={onBookmarkChange} />
         </div>
       </div>

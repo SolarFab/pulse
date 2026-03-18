@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { CATEGORIES, TimeFilter, TIME_LABELS } from "@/lib/types";
+import { CATEGORIES, SUBCATEGORIES, TimeFilter, TIME_LABELS } from "@/lib/types";
 
 export interface DateRange {
   from: string;
@@ -11,8 +11,10 @@ export interface DateRange {
 interface Props {
   timeFilter: TimeFilter;
   activeCategories: Set<string>;
+  activeSubtag: string | null;
   onTimeChange: (t: TimeFilter) => void;
   onCategoryToggle: (cat: string) => void;
+  onSubtagSelect: (category: string, tag: string | null) => void;
   eventCount: number;
   dateRange: DateRange | null;
   onDateRange: (range: DateRange | null) => void;
@@ -146,14 +148,17 @@ function MonthCalendar({
 export default function Filters({
   timeFilter,
   activeCategories,
+  activeSubtag,
   onTimeChange,
   onCategoryToggle,
+  onSubtagSelect,
   eventCount,
   dateRange,
   onDateRange,
 }: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [subDropdown, setSubDropdown] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [selFrom, setSelFrom] = useState("");
@@ -377,29 +382,88 @@ export default function Filters({
         </div>
 
         {/* Category pills */}
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5">
-          {Object.entries(CATEGORIES).map(([key, cat]) => {
-            const isActive =
-              activeCategories.size === 0 || activeCategories.has(key);
-            return (
-              <button
-                key={key}
-                onClick={() => onCategoryToggle(key)}
-                className={`whitespace-nowrap text-[13px] px-3 py-1.5 rounded-full font-medium transition-all active:scale-95 border ${
-                  isActive
-                    ? "text-white border-transparent shadow-sm"
-                    : "bg-white/80 text-gray-400 border-gray-100"
-                }`}
-                style={
-                  isActive
-                    ? { background: cat.color, borderColor: cat.color }
-                    : undefined
-                }
-              >
-                {cat.emoji} {cat.label}
-              </button>
-            );
-          })}
+        <div className="relative">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5">
+            {Object.entries(CATEGORIES).map(([key, cat]) => {
+              const isActive =
+                activeCategories.size === 0 || activeCategories.has(key);
+              const hasSubs = !!SUBCATEGORIES[key];
+              const showingSub = activeSubtag && activeCategories.has(key) && activeCategories.size === 1;
+              const subLabel = showingSub
+                ? SUBCATEGORIES[key]?.find((s) => s.tag === activeSubtag)?.label
+                : null;
+              return (
+                <div key={key} className="shrink-0 flex items-center">
+                  <button
+                    onClick={() => {
+                      if (subDropdown) { setSubDropdown(null); return; }
+                      onCategoryToggle(key);
+                    }}
+                    className={`whitespace-nowrap text-[13px] py-1.5 font-medium transition-all active:scale-95 border select-none ${
+                      hasSubs && isActive ? "rounded-l-full pl-3 pr-1.5" : "rounded-full px-3"
+                    } ${
+                      isActive
+                        ? "text-white border-transparent shadow-sm"
+                        : "bg-white/80 text-gray-400 border-gray-100"
+                    }`}
+                    style={
+                      isActive
+                        ? { background: cat.color, borderColor: cat.color }
+                        : undefined
+                    }
+                  >
+                    {cat.emoji} {subLabel || cat.label}
+                  </button>
+                  {hasSubs && isActive && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSubDropdown(subDropdown === key ? null : key);
+                      }}
+                      className="text-white text-[13px] py-1.5 pl-1 pr-2.5 rounded-r-full border-l border-white/20 active:opacity-70"
+                      style={{ background: cat.color }}
+                    >
+                      ▾
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Subcategory dropdown — rendered outside overflow container */}
+          {subDropdown && SUBCATEGORIES[subDropdown] && (
+            <>
+              <div
+                className="fixed inset-0 z-[100] pointer-events-auto"
+                onClick={() => setSubDropdown(null)}
+              />
+              <div className="absolute left-0.5 top-full mt-1.5 bg-white border border-gray-100 rounded-xl py-1 shadow-lg z-[101] pointer-events-auto" style={{ width: "auto", maxWidth: "130px" }}>
+                {SUBCATEGORIES[subDropdown].map((sub) => {
+                  const isSelected = sub.tag === "" ? !activeSubtag : activeSubtag === sub.tag;
+                  return (
+                    <button
+                      key={sub.tag}
+                      onClick={() => {
+                        onSubtagSelect(subDropdown, sub.tag || null);
+                        setSubDropdown(null);
+                      }}
+                      className={`w-full text-left px-3 py-1.5 text-[12px] transition active:bg-gray-50 whitespace-nowrap ${
+                        isSelected
+                          ? "text-gray-900 font-semibold"
+                          : "text-gray-500"
+                      }`}
+                    >
+                      {sub.label}
+                      {isSelected && (
+                        <span className="ml-2 text-emerald-500 font-bold">✓</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

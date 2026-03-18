@@ -123,7 +123,7 @@ export default function EventList({ events, onSelectEvent, bookmarks = {} }: Pro
 
       <div className="space-y-2">
         {displayEvents.map((event) => {
-          const cat = CATEGORIES[event.category] || CATEGORIES.social;
+          const cat = CATEGORIES[event.category] || CATEGORIES.culture;
           const bm = displayBookmarks[event.id];
           return (
             <button

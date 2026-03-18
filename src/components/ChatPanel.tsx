@@ -288,12 +288,7 @@ export default function ChatPanel({
   );
 
   return (
-    <div className="flex flex-col h-full bg-white/95 backdrop-blur-sm rounded-t-2xl shadow-[0_-4px_30px_rgba(0,0,0,0.08)] border-t border-gray-100">
-      {/* Handle bar */}
-      <div className="flex justify-center pt-2 pb-1">
-        <div className="w-9 h-1 bg-gray-300 rounded-full" />
-      </div>
-
+    <div className="flex flex-col h-full">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-2 space-y-3 min-h-0">
         {messages.length === 0 && (

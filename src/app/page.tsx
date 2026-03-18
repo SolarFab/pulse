@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import Filters from "@/components/Filters";
@@ -19,6 +19,67 @@ const EventMap = dynamic(() => import("@/components/EventMap"), { ssr: false });
 
 type View = "map" | "list" | "profile";
 
+function SwipeDownSheet({ onClose, className, children }: { onClose: () => void; className?: string; children: React.ReactNode }) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragStartY = useRef(0);
+  const dragDelta = useRef(0);
+  const isDragging = useRef(false);
+
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    // Only allow drag from the top area (handle bar region, first 40px)
+    const rect = sheet.getBoundingClientRect();
+    const touchY = e.touches[0].clientY - rect.top;
+    if (touchY > 40) return;
+    dragStartY.current = e.touches[0].clientY;
+    isDragging.current = true;
+  }, []);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging.current) return;
+    const delta = e.touches[0].clientY - dragStartY.current;
+    if (delta < 0) { dragDelta.current = 0; return; }
+    dragDelta.current = delta;
+    if (sheetRef.current) {
+      sheetRef.current.style.transform = `translateY(${delta}px)`;
+      sheetRef.current.style.transition = "none";
+    }
+  }, []);
+
+  const onTouchEnd = useCallback(() => {
+    if (!isDragging.current) return;
+    isDragging.current = false;
+    if (sheetRef.current) {
+      if (dragDelta.current > 30) {
+        sheetRef.current.style.transition = "transform 0.2s ease-out";
+        sheetRef.current.style.transform = "translateY(100%)";
+        setTimeout(onClose, 200);
+      } else {
+        sheetRef.current.style.transition = "transform 0.2s ease-out";
+        sheetRef.current.style.transform = "translateY(0)";
+      }
+    }
+    dragDelta.current = 0;
+  }, [onClose]);
+
+  return (
+    <div
+      ref={sheetRef}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      className={`absolute bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.1)] flex flex-col ${className || ""}`}
+    >
+      {/* Handle bar */}
+      <div className="flex justify-center pt-2 pb-1 shrink-0 cursor-grab">
+        <div className="w-9 h-1 bg-gray-300 rounded-full" />
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function Home() {
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -27,6 +88,7 @@ export default function Home() {
   const [activeCategories, setActiveCategories] = useState<Set<string>>(
     new Set()
   );
+  const [activeSubtag, setActiveSubtag] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("map");
   const [chatOpen, setChatOpen] = useState(false);
@@ -81,9 +143,10 @@ export default function Home() {
       timeFilter === "custom" && dateRange
         ? `&from=${dateRange.from}&to=${dateRange.to}`
         : "";
+    const tagParam = activeSubtag ? `&tag=${activeSubtag}` : "";
     try {
       const res = await fetch(
-        `/api/events?time=${timeFilter}${catParam}${dateParam}`
+        `/api/events?time=${timeFilter}${catParam}${dateParam}${tagParam}`
       );
       const data = await res.json();
       setEvents(Array.isArray(data) ? data : []);
@@ -91,7 +154,7 @@ export default function Home() {
       setEvents([]);
     }
     setLoading(false);
-  }, [timeFilter, activeCategories, dateRange]);
+  }, [timeFilter, activeCategories, dateRange, activeSubtag]);
 
   useEffect(() => {
     fetchEvents();
@@ -100,6 +163,7 @@ export default function Home() {
   const filteredEvents = events;
 
   const handleCategoryToggle = useCallback((cat: string) => {
+    setActiveSubtag(null);
     setActiveCategories((prev) => {
       const next = new Set(prev);
       if (next.has(cat)) {
@@ -111,14 +175,20 @@ export default function Home() {
     });
   }, []);
 
+  const handleSubtagSelect = useCallback((category: string, tag: string | null) => {
+    // When selecting a subtag, ensure only that category is active
+    setActiveCategories(new Set([category]));
+    setActiveSubtag(tag);
+  }, []);
+
   const handleSelectEvent = useCallback(
     (event: Event | null) => {
       setSelectedEvent(event);
       setVenueEvents([]);
       setHighlightedEvent(null);
-      if (event && view === "list") setView("map");
+      if (event) setView("map");
     },
-    [view]
+    []
   );
 
   const handleSelectVenueEvents = useCallback(
@@ -166,7 +236,7 @@ export default function Home() {
       <div className="flex-1 relative flex flex-col min-h-0">
         {/* Map area */}
         <div
-          className={`relative flex-1 ${view === "list" || view === "profile" ? "hidden" : ""}`}
+          className={`relative flex-1 ${view === "profile" ? "hidden" : ""}`}
         >
           <EventMap
             events={chatOpen && chatMentionedEvents.length > 0 ? chatMentionedEvents : filteredEvents}
@@ -183,6 +253,8 @@ export default function Home() {
               activeCategories={activeCategories}
               onTimeChange={setTimeFilter}
               onCategoryToggle={handleCategoryToggle}
+              activeSubtag={activeSubtag}
+              onSubtagSelect={handleSubtagSelect}
               eventCount={filteredEvents.length}
               dateRange={dateRange}
               onDateRange={setDateRange}
@@ -225,15 +297,17 @@ export default function Home() {
 
           {/* Create event panel */}
           {createOpen && (
-            <CreateEvent
-              onClose={() => setCreateOpen(false)}
-              onCreated={fetchEvents}
-            />
+            <SwipeDownSheet onClose={() => setCreateOpen(false)} className="h-full">
+              <CreateEvent
+                onClose={() => setCreateOpen(false)}
+                onCreated={fetchEvents}
+              />
+            </SwipeDownSheet>
           )}
 
           {/* Chat panel — slides up from bottom */}
           {chatOpen && (
-            <div className="absolute bottom-0 left-0 right-0 h-[50%] z-50 bg-white rounded-t-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.1)] flex flex-col">
+            <SwipeDownSheet onClose={() => { setChatOpen(false); setChatMentionedEvents([]); setHighlightedEvent(null); }} className="h-[50%]">
               <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 shrink-0">
                 <h2 className="text-sm font-bold text-gray-900">Ask AI</h2>
                 <button
@@ -258,7 +332,7 @@ export default function Home() {
                   onMentionedEventsChange={setChatMentionedEvents}
                 />
               </div>
-            </div>
+            </SwipeDownSheet>
           )}
 
           {/* Event detail — map view only */}
@@ -289,7 +363,7 @@ export default function Home() {
                 </div>
                 <div className="px-3 pb-5 space-y-2">
                   {venueEvents.map((event) => {
-                    const cat = CATEGORIES[event.category] || CATEGORIES.social;
+                    const cat = CATEGORIES[event.category] || CATEGORIES.culture;
                     return (
                       <button
                         key={event.id}
@@ -346,27 +420,32 @@ export default function Home() {
               />
             </div>
           )}
+
+          {/* Events list — bottom sheet overlay on map */}
+          {view === "list" && (
+            <SwipeDownSheet onClose={() => setView("map")} className="h-[85%]">
+              <div className="flex-1 min-h-0 overflow-hidden relative">
+                <EventList
+                  events={filteredEvents}
+                  onSelectEvent={handleSelectEvent}
+                  bookmarks={bookmarks}
+                />
+                <Filters
+                  timeFilter={timeFilter}
+                  activeCategories={activeCategories}
+                  onTimeChange={setTimeFilter}
+                  onCategoryToggle={handleCategoryToggle}
+                  activeSubtag={activeSubtag}
+                  onSubtagSelect={handleSubtagSelect}
+                  eventCount={filteredEvents.length}
+                  dateRange={dateRange}
+                  onDateRange={setDateRange}
+                />
+              </div>
+            </SwipeDownSheet>
+          )}
         </div>
 
-        {/* List view */}
-        {view === "list" && (
-          <div className="flex-1 relative">
-            <EventList
-              events={filteredEvents}
-              onSelectEvent={handleSelectEvent}
-              bookmarks={bookmarks}
-            />
-            <Filters
-              timeFilter={timeFilter}
-              activeCategories={activeCategories}
-              onTimeChange={setTimeFilter}
-              onCategoryToggle={handleCategoryToggle}
-              eventCount={filteredEvents.length}
-              dateRange={dateRange}
-              onDateRange={setDateRange}
-            />
-          </div>
-        )}
 
         {/* Profile view */}
         {view === "profile" && (

@@ -22,7 +22,7 @@ function formatDate(iso: string) {
 
 /** Compact event card for inline chat use */
 export default function ChatEventCard({ event, onClose, onMoreInfo }: Props) {
-  const cat = CATEGORIES[event.category] || CATEGORIES.social;
+  const cat = CATEGORIES[event.category] || CATEGORIES.culture;
   const time = `${formatDate(event.start_time)} · ${formatTime(event.start_time)}`;
 
   return (

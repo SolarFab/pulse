@@ -58,8 +58,8 @@ export default function EventMap({
             title: e.title,
             venue_name: e.venue_name,
             category: e.category,
-            color: (CATEGORIES[e.category] || CATEGORIES.social).color,
-            emoji: (CATEGORIES[e.category] || CATEGORIES.social).emoji,
+            color: (CATEGORIES[e.category] || CATEGORIES.culture).color,
+            emoji: (CATEGORIES[e.category] || CATEGORIES.culture).emoji,
             selected: isSelected ? 1 : 0,
             count: locCounts[key] || 1,
           },
@@ -317,7 +317,7 @@ export default function EventMap({
 
     // Set pulse point
     const color = (
-      CATEGORIES[highlightedEvent.category] || CATEGORIES.social
+      CATEGORIES[highlightedEvent.category] || CATEGORIES.culture
     ).color;
     pulseSource.setData({
       type: "FeatureCollection",

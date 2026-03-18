@@ -120,7 +120,7 @@ export default function SavedEvents({ onSelectEvent, onBack }: Props) {
 
         <div className="space-y-2">
           {filtered.map((event) => {
-            const cat = CATEGORIES[event.category] || CATEGORIES.social;
+            const cat = CATEGORIES[event.category] || CATEGORIES.culture;
             return (
               <button
                 key={event.id}
