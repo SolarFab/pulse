@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { CATEGORIES, SUBCATEGORIES, TimeFilter, TIME_LABELS } from "@/lib/types";
 
 export interface DateRange {
@@ -159,6 +159,8 @@ export default function Filters({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [subDropdown, setSubDropdown] = useState<string | null>(null);
+  const [subDropdownLeft, setSubDropdownLeft] = useState(0);
+  const pillsContainerRef = useRef<HTMLDivElement>(null);
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [selFrom, setSelFrom] = useState("");
@@ -382,7 +384,7 @@ export default function Filters({
         </div>
 
         {/* Category pills */}
-        <div className="relative">
+        <div className="relative" ref={pillsContainerRef}>
           <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5">
             {Object.entries(CATEGORIES).map(([key, cat]) => {
               const isActive =
@@ -418,7 +420,19 @@ export default function Filters({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSubDropdown(subDropdown === key ? null : key);
+                        if (subDropdown === key) {
+                          setSubDropdown(null);
+                        } else {
+                          // Calculate position relative to pills container
+                          const btn = e.currentTarget;
+                          const container = pillsContainerRef.current;
+                          if (container) {
+                            const btnRect = btn.getBoundingClientRect();
+                            const containerRect = container.getBoundingClientRect();
+                            setSubDropdownLeft(btnRect.left - containerRect.left);
+                          }
+                          setSubDropdown(key);
+                        }
                       }}
                       className="text-white text-[13px] py-1.5 pl-1 pr-2.5 rounded-r-full border-l border-white/20 active:opacity-70"
                       style={{ background: cat.color }}
@@ -438,7 +452,7 @@ export default function Filters({
                 className="fixed inset-0 z-[100] pointer-events-auto"
                 onClick={() => setSubDropdown(null)}
               />
-              <div className="absolute left-0.5 top-full mt-1.5 bg-white border border-gray-100 rounded-xl py-1 shadow-lg z-[101] pointer-events-auto" style={{ width: "auto", maxWidth: "130px" }}>
+              <div className="absolute top-full mt-1.5 bg-white border border-gray-100 rounded-xl py-1 shadow-lg z-[101] pointer-events-auto" style={{ left: `${subDropdownLeft}px`, width: "auto", maxWidth: "160px" }}>
                 {SUBCATEGORIES[subDropdown].map((sub) => {
                   const isSelected = sub.tag === "" ? !activeSubtag : activeSubtag === sub.tag;
                   return (

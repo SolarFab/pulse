@@ -165,13 +165,12 @@ export default function Home() {
   const handleCategoryToggle = useCallback((cat: string) => {
     setActiveSubtag(null);
     setActiveCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(cat)) {
-        next.delete(cat);
-      } else {
-        next.add(cat);
+      // If this category is already the only active one, deselect it (show all)
+      if (prev.size === 1 && prev.has(cat)) {
+        return new Set<string>();
       }
-      return next;
+      // Otherwise select only this category
+      return new Set([cat]);
     });
   }, []);
 
