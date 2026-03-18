@@ -118,7 +118,8 @@ export default function Home() {
         .single();
 
       if (data) {
-        if (!data.onboarding_completed) {
+        const forceOnboarding = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("onboarding") === "true";
+        if (!data.onboarding_completed || forceOnboarding) {
           setShowOnboarding(true);
         }
         setUserGenres(data.genres || []);
