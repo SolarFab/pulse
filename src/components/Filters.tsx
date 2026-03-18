@@ -423,13 +423,13 @@ export default function Filters({
                         if (subDropdown === key) {
                           setSubDropdown(null);
                         } else {
-                          // Calculate position relative to pills container
-                          const btn = e.currentTarget;
+                          // Align dropdown with the left edge of the pill
+                          const pillDiv = e.currentTarget.parentElement;
                           const container = pillsContainerRef.current;
-                          if (container) {
-                            const btnRect = btn.getBoundingClientRect();
+                          if (pillDiv && container) {
+                            const pillRect = pillDiv.getBoundingClientRect();
                             const containerRect = container.getBoundingClientRect();
-                            setSubDropdownLeft(btnRect.left - containerRect.left);
+                            setSubDropdownLeft(pillRect.left - containerRect.left);
                           }
                           setSubDropdown(key);
                         }
