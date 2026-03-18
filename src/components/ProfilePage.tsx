@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Profile, CATEGORIES } from "@/lib/types";
+import { Profile, CATEGORIES, SUBCATEGORIES } from "@/lib/types";
 import NotificationSettings from "@/components/NotificationSettings";
 import { getApiKey, setApiKey, removeApiKey } from "@/lib/llm-chat";
 
@@ -15,6 +15,7 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [genres, setGenres] = useState<Set<string>>(new Set());
+  const [subcategories, setSubcategories] = useState<Record<string, string[]>>({});
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -46,6 +47,7 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
         setProfile(data);
         setDisplayName(data.display_name || "");
         setGenres(new Set(data.genres || []));
+        setSubcategories(data.subcategories || {});
       }
     }
     load();
@@ -55,11 +57,18 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
     if (!profile) return;
     setSaving(true);
     const supabase = createClient();
+    // Clean up subcategories for removed genres
+    const cleanedSubs: Record<string, string[]> = {};
+    for (const g of genres) {
+      cleanedSubs[g] = subcategories[g] || [];
+    }
+
     await supabase
       .from("profiles")
       .update({
         display_name: displayName.trim() || null,
         genres: Array.from(genres),
+        subcategories: cleanedSubs,
         updated_at: new Date().toISOString(),
       })
       .eq("id", profile.id);
@@ -100,6 +109,15 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
       if (next.has(genre)) next.delete(genre);
       else next.add(genre);
       return next;
+    });
+  }
+
+  function toggleSubcategory(category: string, tag: string) {
+    setSubcategories((prev) => {
+      const current = new Set(prev[category] || []);
+      if (current.has(tag)) current.delete(tag);
+      else current.add(tag);
+      return { ...prev, [category]: Array.from(current) };
     });
   }
 
@@ -205,6 +223,36 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
               </button>
             ))}
           </div>
+
+          {/* Subcategory preferences for selected genres */}
+          {Array.from(genres).map((genreKey) => {
+            const subs = (SUBCATEGORIES[genreKey] || []).filter((s) => s.tag !== "");
+            if (subs.length === 0) return null;
+            const cat = CATEGORIES[genreKey];
+            const selected = new Set(subcategories[genreKey] || []);
+            return (
+              <div key={genreKey} className="mt-3">
+                <p className="text-xs text-gray-400 mb-1.5">
+                  {cat?.emoji} {cat?.label} preferences
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {subs.map((sub) => (
+                    <button
+                      key={sub.tag}
+                      onClick={() => toggleSubcategory(genreKey, sub.tag)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                        selected.has(sub.tag)
+                          ? "bg-gray-800 text-white"
+                          : "bg-gray-100 text-gray-500"
+                      }`}
+                    >
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Save button */}

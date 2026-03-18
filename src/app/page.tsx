@@ -99,6 +99,8 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<Record<string, BookmarkStatus>>({});
   const [venueEvents, setVenueEvents] = useState<Event[]>([]);
+  const [userGenres, setUserGenres] = useState<string[]>([]);
+  const [userSubcategories, setUserSubcategories] = useState<Record<string, string[]>>({});
   const router = useRouter();
 
   // Check onboarding status + load bookmarks
@@ -111,12 +113,16 @@ export default function Home() {
 
       const { data } = await supabase
         .from("profiles")
-        .select("onboarding_completed")
+        .select("onboarding_completed, genres, subcategories")
         .eq("id", user.id)
         .single();
 
-      if (data && !data.onboarding_completed) {
-        setShowOnboarding(true);
+      if (data) {
+        if (!data.onboarding_completed) {
+          setShowOnboarding(true);
+        }
+        setUserGenres(data.genres || []);
+        setUserSubcategories(data.subcategories || {});
       }
 
       // Load bookmarks
@@ -225,7 +231,20 @@ export default function Home() {
     return (
       <Onboarding
         userId={userId}
-        onComplete={() => setShowOnboarding(false)}
+        onComplete={async () => {
+          setShowOnboarding(false);
+          // Reload preferences after onboarding
+          const supabase = createClient();
+          const { data } = await supabase
+            .from("profiles")
+            .select("genres, subcategories")
+            .eq("id", userId)
+            .single();
+          if (data) {
+            setUserGenres(data.genres || []);
+            setUserSubcategories(data.subcategories || {});
+          }
+        }}
       />
     );
   }
@@ -428,6 +447,8 @@ export default function Home() {
                   events={filteredEvents}
                   onSelectEvent={handleSelectEvent}
                   bookmarks={bookmarks}
+                  userGenres={userGenres}
+                  userSubcategories={userSubcategories}
                 />
                 <Filters
                   timeFilter={timeFilter}

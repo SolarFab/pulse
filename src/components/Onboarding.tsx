@@ -1,66 +1,107 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { CATEGORIES } from "@/lib/types";
+import { CATEGORIES, SUBCATEGORIES } from "@/lib/types";
 
 interface OnboardingProps {
   userId: string;
   onComplete: () => void;
 }
 
+const VIBE_OPTIONS: { key: string; label: string }[] = [
+  { key: "music", label: "Live music that gives me chills" },
+  { key: "nightlife", label: "Dancing until the sun comes up" },
+  { key: "culture", label: "Art that makes me think" },
+  { key: "food", label: "Eating my way through Berlin" },
+  { key: "markets", label: "Treasure hunting at flea markets" },
+  { key: "workshops", label: "Learning something new with my hands" },
+  { key: "meetups", label: "Finding my people" },
+  { key: "outdoors", label: "Fresh air and adventures" },
+  { key: "family", label: "Fun stuff with the kids" },
+];
+
 export default function Onboarding({ userId, onComplete }: OnboardingProps) {
   const [step, setStep] = useState(0);
-  const [displayName, setDisplayName] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [genres, setGenres] = useState<Set<string>>(new Set());
+  // Q0 selections (mutable until user taps Continue)
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  // Locked list after Q0 — drives subcategory screens
+  const [lockedCategories, setLockedCategories] = useState<string[]>([]);
+  const [subcategorySelections, setSubcategorySelections] = useState<Record<string, Set<string>>>({});
   const [saving, setSaving] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const totalSteps = 3;
+  // Total steps: Q0 + one screen per selected category
+  const totalSteps = 1 + lockedCategories.length;
+  const isQ0 = step === 0;
+  const currentCategoryIndex = step - 1;
+  const currentCategoryKey = lockedCategories[currentCategoryIndex] || null;
+  const currentCategory = currentCategoryKey ? CATEGORIES[currentCategoryKey] : null;
 
-  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const currentSubcategories = useMemo(() => {
+    if (!currentCategoryKey) return [];
+    return (SUBCATEGORIES[currentCategoryKey] || []).filter((s) => s.tag !== "");
+  }, [currentCategoryKey]);
 
-    setUploading(true);
-    const supabase = createClient();
-    const ext = file.name.split(".").pop();
-    const path = `${userId}/avatar.${ext}`;
-
-    await supabase.storage.from("avatars").upload(path, file, { upsert: true });
-
-    const { data: { publicUrl } } = supabase.storage
-      .from("avatars")
-      .getPublicUrl(path);
-
-    setAvatarUrl(`${publicUrl}?t=${Date.now()}`);
-    setUploading(false);
-  }
-
-  function toggleGenre(genre: string) {
-    setGenres((prev) => {
+  function toggleCategory(key: string) {
+    setSelectedCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(genre)) next.delete(genre);
-      else next.add(genre);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
+  }
+
+  function toggleSubcategory(tag: string) {
+    if (!currentCategoryKey) return;
+    setSubcategorySelections((prev) => {
+      const current = new Set(prev[currentCategoryKey] || []);
+      if (current.has(tag)) current.delete(tag);
+      else current.add(tag);
+      return { ...prev, [currentCategoryKey]: current };
+    });
+  }
+
+  function handleQ0Continue() {
+    if (selectedCategories.size === 0) return;
+    // Lock category order (preserve VIBE_OPTIONS order)
+    const ordered = VIBE_OPTIONS
+      .filter((v) => selectedCategories.has(v.key))
+      .map((v) => v.key);
+    setLockedCategories(ordered);
+    setStep(1);
+  }
+
+  function handleNext() {
+    if (step < totalSteps - 1) {
+      setStep(step + 1);
+    } else {
+      handleFinish();
+    }
+  }
+
+  function handleBack() {
+    if (step > 0) setStep(step - 1);
   }
 
   async function handleFinish() {
     setSaving(true);
     const supabase = createClient();
+
+    const subMap: Record<string, string[]> = {};
+    for (const cat of lockedCategories) {
+      subMap[cat] = Array.from(subcategorySelections[cat] || []);
+    }
+
     await supabase
       .from("profiles")
       .update({
-        display_name: displayName.trim() || null,
-        avatar_url: avatarUrl,
-        genres: Array.from(genres),
+        genres: lockedCategories,
+        subcategories: subMap,
         onboarding_completed: true,
         updated_at: new Date().toISOString(),
       })
       .eq("id", userId);
+
     setSaving(false);
     onComplete();
   }
@@ -74,10 +115,25 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
     onComplete();
   }
 
+  const isLastStep = step === totalSteps - 1 && totalSteps > 1;
+  const progressPercent = totalSteps > 1 ? ((step + 1) / totalSteps) * 100 : (step === 0 ? 50 : 100);
+
   return (
     <div className="fixed inset-0 z-[100] bg-[#faf9f6] flex flex-col">
-      {/* Skip button */}
-      <div className="flex justify-end px-6 pt-safe-top mt-4">
+      {/* Top bar: back + skip */}
+      <div className="flex items-center justify-between px-5 pt-safe-top mt-3">
+        {step > 0 ? (
+          <button
+            onClick={handleBack}
+            className="w-9 h-9 flex items-center justify-center rounded-full text-gray-500 active:bg-gray-100 transition"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+        ) : (
+          <div className="w-9" />
+        )}
         <button
           onClick={handleSkip}
           className="text-sm text-gray-400 font-medium hover:text-gray-600 transition"
@@ -86,138 +142,125 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
         </button>
       </div>
 
+      {/* Progress bar */}
+      <div className="h-1 bg-gray-200 rounded-full mx-6 mt-3">
+        <div
+          className="h-1 bg-[#1a1a1a] rounded-full transition-all duration-300"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+
       {/* Content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-8 -mt-8">
-        {/* Step 0: Welcome */}
-        {step === 0 && (
-          <div className="text-center max-w-xs">
-            <div className="text-5xl mb-6">{"\uD83C\uDF03"}</div>
-            <h1 className="text-2xl font-bold mb-3">Welcome to NachtKarte</h1>
-            <p className="text-gray-500 text-sm leading-relaxed mb-8">
-              Discover what&apos;s happening in Berlin. Let&apos;s set up your profile so we can
-              show you the events you&apos;ll love.
-            </p>
-            <button
-              onClick={() => setStep(1)}
-              className="w-full py-3 rounded-xl bg-[#1a1a1a] text-white font-medium text-base transition"
-            >
-              Get started
-            </button>
-          </div>
+      <div className="flex-1 flex flex-col min-h-0 px-6 pt-6">
+        {/* Q0: Category vibes */}
+        {isQ0 && (
+          <>
+            <h1 className="text-xl font-bold text-center mb-1">What sounds like the best evening?</h1>
+            <p className="text-sm text-gray-400 text-center mb-5">Pick as many as you like</p>
+            <div className="flex-1 overflow-y-auto -mx-1 pb-4">
+              <div className="space-y-2.5 px-1">
+                {VIBE_OPTIONS.map(({ key, label }) => {
+                  const cat = CATEGORIES[key];
+                  const selected = selectedCategories.has(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => toggleCategory(key)}
+                      className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl border-2 transition active:scale-[0.98] ${
+                        selected
+                          ? "border-gray-900 bg-white shadow-sm"
+                          : "border-gray-200 bg-white"
+                      }`}
+                    >
+                      <div
+                        className="w-11 h-11 rounded-xl flex items-center justify-center text-lg shrink-0"
+                        style={{ background: cat.color + "20" }}
+                      >
+                        {cat.emoji}
+                      </div>
+                      <span className="flex-1 text-left text-sm font-medium text-gray-800">
+                        {label}
+                      </span>
+                      <div
+                        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition ${
+                          selected
+                            ? "bg-[#1a1a1a] border-[#1a1a1a]"
+                            : "border-gray-300"
+                        }`}
+                      >
+                        {selected && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>
         )}
 
-        {/* Step 1: Name & Photo */}
-        {step === 1 && (
-          <div className="w-full max-w-xs">
-            <h2 className="text-xl font-bold text-center mb-2">About you</h2>
-            <p className="text-sm text-gray-500 text-center mb-8">
-              Add your name and a photo
-            </p>
-
-            {/* Avatar upload */}
-            <div className="flex flex-col items-center mb-6">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="relative group"
-                disabled={uploading}
+        {/* Subcategory screens */}
+        {!isQ0 && currentCategory && currentCategoryKey && (
+          <>
+            <div className="text-center mb-6">
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mx-auto mb-3"
+                style={{ background: currentCategory.color + "20" }}
               >
-                <div className="w-24 h-24 rounded-full bg-gray-200 overflow-hidden border-2 border-white shadow-lg">
-                  {avatarUrl ? (
-                    <img
-                      src={avatarUrl}
-                      alt="Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-                        <circle cx="12" cy="13" r="4"/>
-                      </svg>
-                    </div>
-                  )}
-                </div>
-                <div className="absolute bottom-0 right-0 w-8 h-8 bg-[#1a1a1a] rounded-full flex items-center justify-center shadow-md">
-                  <span className="text-white text-sm">+</span>
-                </div>
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleAvatarUpload}
-                className="hidden"
-              />
-              <p className="text-xs text-gray-400 mt-2">
-                {uploading ? "Uploading..." : "Add a photo"}
+                {currentCategory.emoji}
+              </div>
+              <h1 className="text-xl font-bold mb-1">
+                What kind of {currentCategory.label.toLowerCase()}?
+              </h1>
+              <p className="text-sm text-gray-400">
+                Pick your favorites or skip for all
               </p>
             </div>
-
-            {/* Name input */}
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your name"
-              autoFocus
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-base text-center focus:outline-none focus:ring-2 focus:ring-black/10 mb-8"
-            />
-
-            <button
-              onClick={() => setStep(2)}
-              className="w-full py-3 rounded-xl bg-[#1a1a1a] text-white font-medium text-base transition"
-            >
-              Continue
-            </button>
-          </div>
-        )}
-
-        {/* Step 2: Genres */}
-        {step === 2 && (
-          <div className="w-full max-w-xs">
-            <h2 className="text-xl font-bold text-center mb-2">What do you like?</h2>
-            <p className="text-sm text-gray-500 text-center mb-8">
-              Pick categories you&apos;re interested in
-            </p>
-
-            <div className="flex flex-wrap justify-center gap-2.5 mb-10">
-              {Object.entries(CATEGORIES).map(([key, cat]) => (
-                <button
-                  key={key}
-                  onClick={() => toggleGenre(key)}
-                  className={`px-4 py-2.5 rounded-full text-sm font-medium transition ${
-                    genres.has(key)
-                      ? "text-white shadow-md"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
-                  style={genres.has(key) ? { backgroundColor: cat.color } : {}}
-                >
-                  {cat.emoji} {cat.label}
-                </button>
-              ))}
+            <div className="flex flex-wrap justify-center gap-2.5">
+              {currentSubcategories.map((sub) => {
+                const selected = subcategorySelections[currentCategoryKey]?.has(sub.tag);
+                return (
+                  <button
+                    key={sub.tag}
+                    onClick={() => toggleSubcategory(sub.tag)}
+                    className={`px-4 py-2.5 rounded-full text-sm font-medium transition active:scale-95 ${
+                      selected
+                        ? "text-white shadow-md"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                    style={selected ? { backgroundColor: currentCategory.color } : {}}
+                  >
+                    {sub.label}
+                  </button>
+                );
+              })}
             </div>
-
-            <button
-              onClick={handleFinish}
-              disabled={saving}
-              className="w-full py-3 rounded-xl bg-[#1a1a1a] text-white font-medium text-base disabled:opacity-50 transition"
-            >
-              {saving ? "Setting up..." : "Let\u0027s go!"}
-            </button>
-          </div>
+          </>
         )}
       </div>
 
-      {/* Progress dots */}
-      <div className="flex justify-center gap-2 pb-8 pb-safe-bottom">
-        {Array.from({ length: totalSteps }).map((_, i) => (
-          <div
-            key={i}
-            className={`w-2 h-2 rounded-full transition ${
-              i === step ? "bg-[#1a1a1a] w-6" : "bg-gray-300"
-            }`}
-          />
-        ))}
+      {/* Bottom: Continue button */}
+      <div className="px-6 pb-6 pb-safe-bottom">
+        {isQ0 ? (
+          <button
+            onClick={handleQ0Continue}
+            disabled={selectedCategories.size === 0}
+            className="w-full py-3.5 rounded-2xl bg-[#1a1a1a] text-white font-semibold text-base disabled:opacity-30 transition active:scale-[0.98]"
+          >
+            Continue
+          </button>
+        ) : (
+          <button
+            onClick={handleNext}
+            disabled={saving}
+            className="w-full py-3.5 rounded-2xl bg-[#1a1a1a] text-white font-semibold text-base disabled:opacity-50 transition active:scale-[0.98]"
+          >
+            {saving ? "Setting up..." : isLastStep ? "Let\u0027s go!" : "Continue"}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Event, CATEGORIES } from "@/lib/types";
 import { BookmarkStatus } from "@/lib/bookmarks";
 import { createClient } from "@/lib/supabase/client";
@@ -11,6 +11,8 @@ interface Props {
   events: Event[];
   onSelectEvent: (event: Event) => void;
   bookmarks?: Record<string, BookmarkStatus>;
+  userGenres?: string[];
+  userSubcategories?: Record<string, string[]>;
 }
 
 function formatTime(iso: string) {
@@ -34,7 +36,7 @@ function isToday(iso: string): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-export default function EventList({ events, onSelectEvent, bookmarks = {} }: Props) {
+export default function EventList({ events, onSelectEvent, bookmarks = {}, userGenres = [], userSubcategories = {} }: Props) {
   const [tab, setTab] = useState<Tab>("all");
   const [savedEvents, setSavedEvents] = useState<Event[]>([]);
   const [savedBookmarks, setSavedBookmarks] = useState<Record<string, BookmarkStatus>>({});
@@ -78,10 +80,30 @@ export default function EventList({ events, onSelectEvent, bookmarks = {} }: Pro
     loadSaved();
   }, [tab]);
 
-  const displayEvents = tab === "all"
+  const rawDisplayEvents = tab === "all"
     ? events
     : savedEvents.filter((e) => savedBookmarks[e.id] === tab);
   const displayBookmarks = tab === "all" ? bookmarks : savedBookmarks;
+
+  const genreSet = useMemo(() => new Set(userGenres), [userGenres]);
+
+  const scoreEvent = useCallback((event: Event): number => {
+    if (genreSet.size === 0) return 0;
+    if (!genreSet.has(event.category)) return 0;
+    const subs = userSubcategories[event.category];
+    if (!subs || subs.length === 0) return 2; // category match, no sub preference
+    if (event.subcategory && subs.includes(event.subcategory)) return 3; // exact match
+    return 1; // category match but different subcategory
+  }, [genreSet, userSubcategories]);
+
+  const displayEvents = useMemo(() => {
+    if (genreSet.size === 0) return rawDisplayEvents;
+    return [...rawDisplayEvents].sort((a, b) => {
+      const diff = scoreEvent(b) - scoreEvent(a);
+      if (diff !== 0) return diff;
+      return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+    });
+  }, [rawDisplayEvents, genreSet, scoreEvent]);
 
   return (
     <div className="absolute inset-0 z-30 bg-[#faf9f6] overflow-y-auto pt-40 pb-4 px-3">
@@ -125,6 +147,7 @@ export default function EventList({ events, onSelectEvent, bookmarks = {} }: Pro
         {displayEvents.map((event) => {
           const cat = CATEGORIES[event.category] || CATEGORIES.culture;
           const bm = displayBookmarks[event.id];
+          const isForYou = scoreEvent(event) >= 2;
           return (
             <button
               key={event.id}
@@ -150,6 +173,11 @@ export default function EventList({ events, onSelectEvent, bookmarks = {} }: Pro
                   {bm === "interested" && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium shrink-0">
                       {"\u2605"}
+                    </span>
+                  )}
+                  {isForYou && !bm && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium shrink-0">
+                      For you
                     </span>
                   )}
                 </div>
