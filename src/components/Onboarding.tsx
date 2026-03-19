@@ -36,7 +36,7 @@ const CATEGORY_SCREENS: Record<string, {
       { label: "I need to headbang", tags: ["live-concert", "rock-pop"] },
       { label: "Smoky jazz bar vibes", tags: ["jazz-blues"] },
       { label: "Beethoven was a genius", tags: ["classical"] },
-      { label: "Latin passion, always", tags: ["latin", "world-folk"] },
+      { label: "Shakira, Shakira", tags: ["latin", "world-folk"] },
       { label: "Keep it gangsta", tags: ["hip-hop"] },
     ],
   },
