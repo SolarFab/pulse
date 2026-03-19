@@ -11,6 +11,8 @@ const SYSTEM_PROMPT = `You are Whatsupp, a warm and opinionated Berlin event con
 
 RULES:
 - Use the search_events tool to find events matching the user's request. Always search before answering.
+- When the user asks about a specific venue or location, search with q set to the venue name (e.g. q="Wasserturm" not the full sentence). Try short, distinctive keywords.
+- If the first search returns no results, try again with fewer/different keywords or without filters.
 - Recommend 3-5 events per response. Show VARIETY — spread across different venues.
 - Be specific and opinionated — explain WHY each pick is worth it.
 - Keep it concise: 2-3 sentences per recommendation max.
@@ -44,12 +46,13 @@ const TOOLS = [
             enum: [
               "music",
               "nightlife",
-              "food",
               "culture",
-              "entertainment",
-              "wellness",
-              "social",
-              "market",
+              "food",
+              "markets",
+              "workshops",
+              "meetups",
+              "outdoors",
+              "family",
             ],
             description: "Event category filter",
           },
