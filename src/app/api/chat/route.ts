@@ -245,15 +245,15 @@ export async function POST(req: NextRequest) {
 
   const lastUserMsg = messages.filter((m: { role: string }) => m.role === "user").pop();
   const userMsg = lastUserMsg?.content || "";
-  const isNearbyQuery = /\b(my neighborhood|my area|near me|around me|um mich|meine gegend|meiner gegend|meiner nähe|in der nähe|bei mir|um die ecke|nearby|mein kiez|meinem kiez)\b/i.test(userMsg);
+  const isNeighborhoodQuery = /\b(my neighborhood|my hood|my area|meine gegend|meiner gegend|mein kiez|meinem kiez|bei mir zuhause|bei mir daheim)\b/i.test(userMsg);
 
-  const eventsContext = await fetchRelevantEvents(userMsg, isNearbyQuery && homeLocation ? homeLocation : null);
+  const eventsContext = await fetchRelevantEvents(userMsg, isNeighborhoodQuery && homeLocation ? homeLocation : null);
 
   const berlinTime = new Date().toLocaleString("de-DE", { timeZone: "Europe/Berlin", weekday: "long", hour: "2-digit", minute: "2-digit", day: "numeric", month: "long", year: "numeric" });
 
   let locationContext = "";
   if (homeLocation) {
-    locationContext = `\nThe user lives at coordinates (${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}) in Berlin. When they ask about "my neighborhood", "near me", "bei mir", "meine Gegend", "mein Kiez", etc., prioritize events close to this location. Events marked with [NEARBY] are within 3km of the user's home.\n`;
+    locationContext = `\nThe user lives at coordinates (${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}) in Berlin. When they ask about "my neighborhood", "meine Gegend", "mein Kiez", etc., prioritize events close to their home. Events marked with [NEARBY] are within 3km of the user's home. Note: if they say "around me" or "near me", that means their current location which you don't know — ask them which area they're in.\n`;
   }
 
   const systemPrompt = SYSTEM_PROMPT + `\nCurrent time in Berlin: ${berlinTime}${locationContext}\nIMPORTANT: When the user asks about "right now" or "jetzt", only recommend events that have already started or start within the next 30 minutes. Do NOT recommend events starting hours later.\n\n` + eventsContext;
