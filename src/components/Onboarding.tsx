@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { CATEGORIES } from "@/lib/types";
 
@@ -9,9 +9,11 @@ interface OnboardingProps {
   onComplete: () => void;
 }
 
+const BERLIN_CENTER: [number, number] = [13.405, 52.52];
+
 // Q0: "How do your weekends look?"
 const VIBE_OPTIONS: { key: string; label: string }[] = [
-  { key: "music", label: "Always sound on my ears" },
+  { key: "music", label: "No evening without live music" },
   { key: "nightlife", label: "The night is where I feel best" },
   { key: "culture", label: "Art is my language" },
   { key: "food", label: "If it\u2019s edible, I\u2019m there" },
@@ -30,7 +32,7 @@ const CATEGORY_SCREENS: Record<string, {
   music: {
     title: "You\u2019re a music person. What\u2019s your sound?",
     options: [
-      { label: "Bass drops and laser beams", tags: ["electronic"] },
+      { label: "BPM over everything", tags: ["electronic"] },
       { label: "I need to headbang", tags: ["live-concert", "rock-pop"] },
       { label: "Smoky jazz bar vibes", tags: ["jazz-blues"] },
       { label: "Beethoven was a genius", tags: ["classical"] },
@@ -52,7 +54,7 @@ const CATEGORY_SCREENS: Record<string, {
     title: "Art soul. What speaks to you?",
     options: [
       { label: "I stare at art for hours", tags: ["exhibition", "gallery"] },
-      { label: "Curtain up, I love the stage", tags: ["theater"] },
+      { label: "Shakespeare would be proud", tags: ["theater"] },
       { label: "Lights off, film on", tags: ["cinema"] },
       { label: "A good book reading, a glass of wine", tags: ["reading"] },
       { label: "I live for festival season", tags: ["festival"] },
@@ -119,27 +121,97 @@ const CATEGORY_SCREENS: Record<string, {
   },
 };
 
-// Steps: welcome(0), Q0(1), subcategory screens(2..N+1), outro(last)
-type StepType = "welcome" | "q0" | "subcategory" | "outro";
+// Steps: welcome(0), Q0(1), subcategory screens(2..N+1), pin-drop(N+2), outro(N+3)
+type StepType = "welcome" | "q0" | "subcategory" | "pin" | "outro";
+
+function PinDropMap({ onLocationChange }: { onLocationChange: (lat: number, lng: number) => void }) {
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<unknown>(null);
+  const markerRef = useRef<unknown>(null);
+
+  useEffect(() => {
+    if (!mapContainer.current || mapRef.current) return;
+
+    let cancelled = false;
+
+    async function initMap() {
+      const maplibregl = (await import("maplibre-gl")).default;
+      // @ts-expect-error -- CSS import handled by bundler
+      await import("maplibre-gl/dist/maplibre-gl.css");
+
+      if (cancelled || !mapContainer.current) return;
+
+      const m = new maplibregl.Map({
+        container: mapContainer.current,
+        style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        center: BERLIN_CENTER,
+        zoom: 11,
+        attributionControl: false,
+      });
+      mapRef.current = m;
+
+      const mk = new maplibregl.Marker({
+        color: "#1a1a1a",
+        draggable: true,
+      })
+        .setLngLat(BERLIN_CENTER)
+        .addTo(m);
+      markerRef.current = mk;
+
+      mk.on("dragend", () => {
+        const lngLat = mk.getLngLat();
+        onLocationChange(lngLat.lat, lngLat.lng);
+      });
+
+      m.on("click", (e: { lngLat: { lat: number; lng: number; wrap: () => { lat: number; lng: number } } }) => {
+        mk.setLngLat(e.lngLat);
+        onLocationChange(e.lngLat.lat, e.lngLat.lng);
+      });
+
+      onLocationChange(BERLIN_CENTER[1], BERLIN_CENTER[0]);
+    }
+
+    initMap();
+
+    return () => {
+      cancelled = true;
+      if (mapRef.current) {
+        (mapRef.current as { remove: () => void }).remove();
+        mapRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div
+      ref={mapContainer}
+      className="w-full flex-1 rounded-2xl overflow-hidden border border-gray-200"
+    />
+  );
+}
 
 export default function Onboarding({ userId, onComplete }: OnboardingProps) {
   const [step, setStep] = useState(0);
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [lockedCategories, setLockedCategories] = useState<string[]>([]);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, Set<number>>>({}); // category -> selected option indices
+  const [pinLocation, setPinLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Calculate step type and total
   const stepInfo = useMemo(() => {
-    // step 0 = welcome, step 1 = Q0, steps 2..N+1 = subcategory, step N+2 = outro
+    // step 0 = welcome, step 1 = Q0, steps 2..N+1 = subcategory, step N+2 = pin, step N+3 = outro
     const subScreenCount = lockedCategories.length;
-    const total = 2 + subScreenCount + 1; // welcome + Q0 + subs + outro
+    const pinStep = 2 + subScreenCount;
+    const outroStep = pinStep + 1;
+    const total = outroStep + 1; // welcome + Q0 + subs + pin + outro
 
     if (step === 0) return { type: "welcome" as StepType, total, catIndex: -1 };
     if (step === 1) return { type: "q0" as StepType, total, catIndex: -1 };
-    if (step >= 2 && step < 2 + subScreenCount) {
+    if (step >= 2 && step < pinStep) {
       return { type: "subcategory" as StepType, total, catIndex: step - 2 };
     }
+    if (step === pinStep) return { type: "pin" as StepType, total, catIndex: -1 };
     return { type: "outro" as StepType, total, catIndex: -1 };
   }, [step, lockedCategories]);
 
@@ -205,14 +277,21 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
       subMap[cat] = tags;
     }
 
+    const updateData: Record<string, unknown> = {
+      genres: lockedCategories,
+      subcategories: subMap,
+      onboarding_completed: true,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (pinLocation) {
+      updateData.home_lat = pinLocation.lat;
+      updateData.home_lng = pinLocation.lng;
+    }
+
     await supabase
       .from("profiles")
-      .update({
-        genres: lockedCategories,
-        subcategories: subMap,
-        onboarding_completed: true,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq("id", userId);
 
     setSaving(false);
@@ -376,6 +455,22 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
           </>
         )}
 
+        {/* PIN DROP: "Show us your neighborhood" */}
+        {stepInfo.type === "pin" && (
+          <>
+            <div className="text-center mb-4">
+              <div className="text-4xl mb-3">{"\uD83D\uDCCD"}</div>
+              <h1 className="text-xl font-bold mb-1">Drop your pin</h1>
+              <p className="text-sm text-gray-400">
+                Tap or drag the pin to your neighborhood. We&apos;ll show you events nearby.
+              </p>
+            </div>
+            <PinDropMap
+              onLocationChange={(lat, lng) => setPinLocation({ lat, lng })}
+            />
+          </>
+        )}
+
         {/* OUTRO: "We learn from you" */}
         {stepInfo.type === "outro" && (
           <div className="flex-1 flex flex-col items-center justify-center -mt-8">
@@ -413,6 +508,15 @@ export default function Onboarding({ userId, onComplete }: OnboardingProps) {
           <button
             onClick={handleNext}
             className="w-full py-3.5 rounded-2xl bg-[#1a1a1a] text-white font-semibold text-base transition active:scale-[0.98]"
+          >
+            Continue
+          </button>
+        )}
+        {stepInfo.type === "pin" && (
+          <button
+            onClick={handleNext}
+            disabled={!pinLocation}
+            className="w-full py-3.5 rounded-2xl bg-[#1a1a1a] text-white font-semibold text-base disabled:opacity-30 transition active:scale-[0.98]"
           >
             Continue
           </button>

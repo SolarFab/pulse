@@ -13,6 +13,7 @@ interface Props {
   bookmarks?: Record<string, BookmarkStatus>;
   userGenres?: string[];
   userSubcategories?: Record<string, string[]>;
+  homeLocation?: { lat: number; lng: number } | null;
 }
 
 function formatTime(iso: string) {
@@ -36,7 +37,15 @@ function isToday(iso: string): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-export default function EventList({ events, onSelectEvent, bookmarks = {}, userGenres = [], userSubcategories = {} }: Props) {
+function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export default function EventList({ events, onSelectEvent, bookmarks = {}, userGenres = [], userSubcategories = {}, homeLocation }: Props) {
   const [tab, setTab] = useState<Tab>("all");
   const [savedEvents, setSavedEvents] = useState<Event[]>([]);
   const [savedBookmarks, setSavedBookmarks] = useState<Record<string, BookmarkStatus>>({});
@@ -96,14 +105,30 @@ export default function EventList({ events, onSelectEvent, bookmarks = {}, userG
     return 1; // category match but different subcategory
   }, [genreSet, userSubcategories]);
 
+  const getDistance = useCallback((event: Event): number => {
+    if (!homeLocation || !event.lat || !event.lng) return Infinity;
+    return distanceKm(homeLocation.lat, homeLocation.lng, event.lat, event.lng);
+  }, [homeLocation]);
+
   const displayEvents = useMemo(() => {
-    if (genreSet.size === 0) return rawDisplayEvents;
+    const hasPrefs = genreSet.size > 0;
+    const hasHome = !!homeLocation;
+    if (!hasPrefs && !hasHome) return rawDisplayEvents;
     return [...rawDisplayEvents].sort((a, b) => {
-      const diff = scoreEvent(b) - scoreEvent(a);
-      if (diff !== 0) return diff;
+      // Primary: preference score (higher = better)
+      if (hasPrefs) {
+        const diff = scoreEvent(b) - scoreEvent(a);
+        if (diff !== 0) return diff;
+      }
+      // Secondary: proximity (closer = better)
+      if (hasHome) {
+        const distDiff = getDistance(a) - getDistance(b);
+        if (Math.abs(distDiff) > 0.1) return distDiff; // >100m difference
+      }
+      // Tertiary: time
       return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
     });
-  }, [rawDisplayEvents, genreSet, scoreEvent]);
+  }, [rawDisplayEvents, genreSet, scoreEvent, homeLocation, getDistance]);
 
   return (
     <div className="absolute inset-0 z-30 bg-[#faf9f6] overflow-y-auto pt-40 pb-4 px-3">
@@ -148,6 +173,8 @@ export default function EventList({ events, onSelectEvent, bookmarks = {}, userG
           const cat = CATEGORIES[event.category] || CATEGORIES.culture;
           const bm = displayBookmarks[event.id];
           const isForYou = scoreEvent(event) >= 2;
+          const dist = getDistance(event);
+          const distLabel = dist < Infinity ? (dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`) : null;
           return (
             <button
               key={event.id}
@@ -184,6 +211,7 @@ export default function EventList({ events, onSelectEvent, bookmarks = {}, userG
                 <p className="text-xs text-gray-500 truncate">
                   {event.venue_name}
                   {event.neighborhood && ` \u00B7 ${event.neighborhood}`}
+                  {distLabel && ` \u00B7 ${distLabel}`}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {!isToday(event.start_time) && `${formatDate(event.start_time)} \u00B7 `}

@@ -101,6 +101,7 @@ export default function Home() {
   const [venueEvents, setVenueEvents] = useState<Event[]>([]);
   const [userGenres, setUserGenres] = useState<string[]>([]);
   const [userSubcategories, setUserSubcategories] = useState<Record<string, string[]>>({});
+  const [homeLocation, setHomeLocation] = useState<{ lat: number; lng: number } | null>(null);
   const router = useRouter();
 
   // Check onboarding status + load bookmarks
@@ -113,7 +114,7 @@ export default function Home() {
 
       const { data } = await supabase
         .from("profiles")
-        .select("onboarding_completed, genres, subcategories")
+        .select("onboarding_completed, genres, subcategories, home_lat, home_lng")
         .eq("id", user.id)
         .single();
 
@@ -124,6 +125,9 @@ export default function Home() {
         }
         setUserGenres(data.genres || []);
         setUserSubcategories(data.subcategories || {});
+        if (data.home_lat && data.home_lng) {
+          setHomeLocation({ lat: data.home_lat, lng: data.home_lng });
+        }
       }
 
       // Load bookmarks
@@ -238,12 +242,15 @@ export default function Home() {
           const supabase = createClient();
           const { data } = await supabase
             .from("profiles")
-            .select("genres, subcategories")
+            .select("genres, subcategories, home_lat, home_lng")
             .eq("id", userId)
             .single();
           if (data) {
             setUserGenres(data.genres || []);
             setUserSubcategories(data.subcategories || {});
+            if (data.home_lat && data.home_lng) {
+              setHomeLocation({ lat: data.home_lat, lng: data.home_lng });
+            }
           }
         }}
       />
@@ -263,6 +270,7 @@ export default function Home() {
             highlightedEvent={highlightedEvent}
             onSelectEvent={handleSelectEvent}
             onSelectVenueEvents={handleSelectVenueEvents}
+            homeLocation={homeLocation}
           />
 
           {/* Filters overlay */}
@@ -450,6 +458,7 @@ export default function Home() {
                   bookmarks={bookmarks}
                   userGenres={userGenres}
                   userSubcategories={userSubcategories}
+                  homeLocation={homeLocation}
                 />
                 <Filters
                   timeFilter={timeFilter}

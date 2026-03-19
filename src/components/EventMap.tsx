@@ -11,6 +11,7 @@ interface Props {
   highlightedEvent: Event | null;
   onSelectEvent: (event: Event | null) => void;
   onSelectVenueEvents?: (events: Event[]) => void;
+  homeLocation?: { lat: number; lng: number } | null;
 }
 
 const BERLIN_CENTER: [number, number] = [13.405, 52.52];
@@ -26,6 +27,7 @@ export default function EventMap({
   highlightedEvent,
   onSelectEvent,
   onSelectVenueEvents,
+  homeLocation,
 }: Props) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -77,8 +79,8 @@ export default function EventMap({
     const m = new maplibregl.Map({
       container: mapContainer.current,
       style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-      center: BERLIN_CENTER,
-      zoom: 12,
+      center: homeLocation ? [homeLocation.lng, homeLocation.lat] : BERLIN_CENTER,
+      zoom: homeLocation ? 13 : 12,
       attributionControl: false,
       maxZoom: 18,
       minZoom: 10,

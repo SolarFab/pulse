@@ -25,6 +25,8 @@ export interface Profile {
   genres: string[];
   subcategories: Record<string, string[]>;
   onboarding_completed: boolean;
+  home_lat: number | null;
+  home_lng: number | null;
 }
 
 export const SUBCATEGORIES: Record<string, { label: string; tag: string }[]> = {
