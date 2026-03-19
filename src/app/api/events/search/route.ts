@@ -45,13 +45,15 @@ export async function GET(req: NextRequest) {
   }
 
   if (neighborhood) {
-    query = query.ilike("neighborhood", `%${neighborhood}%`);
+    query = query.or(
+      `neighborhood.ilike.%${neighborhood}%,address.ilike.%${neighborhood}%`
+    );
   }
 
-  // Text search: use ilike on title, or filter post-query for broader matching
+  // Text search: use ilike on title, venue, description, neighborhood, address
   if (q) {
     query = query.or(
-      `title.ilike.%${q}%,venue_name.ilike.%${q}%,description.ilike.%${q}%,neighborhood.ilike.%${q}%`
+      `title.ilike.%${q}%,venue_name.ilike.%${q}%,description.ilike.%${q}%,neighborhood.ilike.%${q}%,address.ilike.%${q}%`
     );
   }
 
