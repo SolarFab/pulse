@@ -357,6 +357,7 @@ export default function Home() {
                   onHighlightEvent={setHighlightedEvent}
                   onSelectEvent={handleChatSelectEvent}
                   onMentionedEventsChange={setChatMentionedEvents}
+                  homeLocation={homeLocation}
                 />
               </div>
             </SwipeDownSheet>

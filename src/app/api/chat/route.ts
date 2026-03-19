@@ -24,7 +24,7 @@ RULES:
 EVENTS DATABASE (current events):
 `;
 
-async function fetchRelevantEvents(userMessage: string): Promise<string> {
+async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: number; lng: number } | null): Promise<string> {
   const msg = userMessage.toLowerCase();
 
   // Determine time window from message
@@ -195,7 +195,18 @@ async function fetchRelevantEvents(userMessage: string): Promise<string> {
 
   if (merged.length === 0) return "No events found for this time period.";
 
-  return merged.slice(0, 100)
+  // If nearby query with home location, sort by distance
+  let results = merged;
+  if (homeLocation) {
+    const withDist = merged.map((e) => ({
+      event: e,
+      dist: e.lat && e.lng ? distanceKm(homeLocation.lat, homeLocation.lng, e.lat, e.lng) : 999,
+    }));
+    withDist.sort((a, b) => a.dist - b.dist);
+    results = withDist.map((w) => w.event);
+  }
+
+  return results.slice(0, 100)
     .map((e) => {
       const time = new Date(e.start_time).toLocaleString("de-DE", {
         timeZone: "Europe/Berlin",
@@ -208,23 +219,44 @@ async function fetchRelevantEvents(userMessage: string): Promise<string> {
       const endStr = e.end_time
         ? ` – ${new Date(e.end_time).toLocaleTimeString("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" })}`
         : "";
-      return `[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"}) | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"} | ${e.description || "No description"}${e.tags?.length ? " | Tags: " + e.tags.join(", ") : ""}`;
+      const dist = homeLocation && e.lat && e.lng ? distanceKm(homeLocation.lat, homeLocation.lng, e.lat, e.lng) : null;
+      const nearbyTag = dist !== null && dist < 3 ? " [NEARBY]" : "";
+      const distStr = dist !== null ? ` | ${dist < 1 ? Math.round(dist * 1000) + "m" : dist.toFixed(1) + "km"} away` : "";
+      return `[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"})${nearbyTag} | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"}${distStr} | ${e.description || "No description"}${e.tags?.length ? " | Tags: " + e.tags.join(", ") : ""}`;
     })
     .join("\n");
 }
 
+// Haversine distance in km
+function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export async function POST(req: NextRequest) {
-  const { messages } = await req.json();
+  const { messages, homeLocation } = await req.json();
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return new Response("messages required", { status: 400 });
   }
 
   const lastUserMsg = messages.filter((m: { role: string }) => m.role === "user").pop();
-  const eventsContext = await fetchRelevantEvents(lastUserMsg?.content || "");
+  const userMsg = lastUserMsg?.content || "";
+  const isNearbyQuery = /\b(my neighborhood|my area|near me|around me|um mich|meine gegend|meiner gegend|meiner nähe|in der nähe|bei mir|um die ecke|nearby|mein kiez|meinem kiez)\b/i.test(userMsg);
+
+  const eventsContext = await fetchRelevantEvents(userMsg, isNearbyQuery && homeLocation ? homeLocation : null);
 
   const berlinTime = new Date().toLocaleString("de-DE", { timeZone: "Europe/Berlin", weekday: "long", hour: "2-digit", minute: "2-digit", day: "numeric", month: "long", year: "numeric" });
-  const systemPrompt = SYSTEM_PROMPT + `\nCurrent time in Berlin: ${berlinTime}\nIMPORTANT: When the user asks about "right now" or "jetzt", only recommend events that have already started or start within the next 30 minutes. Do NOT recommend events starting hours later.\n\n` + eventsContext;
+
+  let locationContext = "";
+  if (homeLocation) {
+    locationContext = `\nThe user lives at coordinates (${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}) in Berlin. When they ask about "my neighborhood", "near me", "bei mir", "meine Gegend", "mein Kiez", etc., prioritize events close to this location. Events marked with [NEARBY] are within 3km of the user's home.\n`;
+  }
+
+  const systemPrompt = SYSTEM_PROMPT + `\nCurrent time in Berlin: ${berlinTime}${locationContext}\nIMPORTANT: When the user asks about "right now" or "jetzt", only recommend events that have already started or start within the next 30 minutes. Do NOT recommend events starting hours later.\n\n` + eventsContext;
 
   const stream = anthropic.messages.stream({
     model: "claude-haiku-4-5-20251001",
