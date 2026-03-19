@@ -198,6 +198,7 @@ async function fetchRelevantEvents(userMessage: string): Promise<string> {
   return merged.slice(0, 100)
     .map((e) => {
       const time = new Date(e.start_time).toLocaleString("de-DE", {
+        timeZone: "Europe/Berlin",
         weekday: "short",
         hour: "2-digit",
         minute: "2-digit",
@@ -205,7 +206,7 @@ async function fetchRelevantEvents(userMessage: string): Promise<string> {
         month: "short",
       });
       const endStr = e.end_time
-        ? ` – ${new Date(e.end_time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`
+        ? ` – ${new Date(e.end_time).toLocaleTimeString("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" })}`
         : "";
       return `[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"}) | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"} | ${e.description || "No description"}${e.tags?.length ? " | Tags: " + e.tags.join(", ") : ""}`;
     })
