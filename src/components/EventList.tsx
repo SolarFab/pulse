@@ -110,25 +110,35 @@ export default function EventList({ events, onSelectEvent, bookmarks = {}, userG
     return distanceKm(homeLocation.lat, homeLocation.lng, event.lat, event.lng);
   }, [homeLocation]);
 
+  // Combined score: preference (0-3) + proximity bonus (0-3)
+  // Nearby (<2km) = +3, medium (<5km) = +2, far (<10km) = +1, very far = +0
+  const combinedScore = useCallback((event: Event): number => {
+    let score = 0;
+    if (genreSet.size > 0) score += scoreEvent(event);
+    if (homeLocation && event.lat && event.lng) {
+      const dist = getDistance(event);
+      if (dist < 2) score += 3;
+      else if (dist < 5) score += 2;
+      else if (dist < 10) score += 1;
+    }
+    return score;
+  }, [genreSet, scoreEvent, homeLocation, getDistance]);
+
   const displayEvents = useMemo(() => {
     const hasPrefs = genreSet.size > 0;
     const hasHome = !!homeLocation;
     if (!hasPrefs && !hasHome) return rawDisplayEvents;
     return [...rawDisplayEvents].sort((a, b) => {
-      // Primary: preference score (higher = better)
-      if (hasPrefs) {
-        const diff = scoreEvent(b) - scoreEvent(a);
-        if (diff !== 0) return diff;
-      }
-      // Secondary: proximity (closer = better)
+      const diff = combinedScore(b) - combinedScore(a);
+      if (diff !== 0) return diff;
+      // Tiebreaker: closer first, then time
       if (hasHome) {
         const distDiff = getDistance(a) - getDistance(b);
-        if (Math.abs(distDiff) > 0.1) return distDiff; // >100m difference
+        if (Math.abs(distDiff) > 0.1) return distDiff;
       }
-      // Tertiary: time
       return new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
     });
-  }, [rawDisplayEvents, genreSet, scoreEvent, homeLocation, getDistance]);
+  }, [rawDisplayEvents, genreSet, combinedScore, homeLocation, getDistance]);
 
   return (
     <div className="absolute inset-0 z-30 bg-[#faf9f6] overflow-y-auto pt-40 pb-4 px-3">
