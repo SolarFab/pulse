@@ -102,6 +102,7 @@ export default function Home() {
   const [userGenres, setUserGenres] = useState<string[]>([]);
   const [userSubcategories, setUserSubcategories] = useState<Record<string, string[]>>({});
   const [homeLocation, setHomeLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const router = useRouter();
 
   // Check onboarding status + load bookmarks
@@ -135,6 +136,16 @@ export default function Home() {
       setBookmarks(bm);
     }
     init();
+  }, []);
+
+  // Request browser geolocation
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {}, // silently ignore denial
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
   }, []);
 
   const handleLogout = useCallback(async () => {
@@ -358,6 +369,7 @@ export default function Home() {
                   onSelectEvent={handleChatSelectEvent}
                   onMentionedEventsChange={setChatMentionedEvents}
                   homeLocation={homeLocation}
+                  currentLocation={currentLocation}
                 />
               </div>
             </SwipeDownSheet>

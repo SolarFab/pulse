@@ -14,6 +14,7 @@ interface Props {
   onSelectEvent: (event: Event) => void;
   onMentionedEventsChange?: (events: Event[]) => void;
   homeLocation?: { lat: number; lng: number } | null;
+  currentLocation?: { lat: number; lng: number } | null;
 }
 
 const QUICK_PROMPTS = [
@@ -126,6 +127,7 @@ export default function ChatPanel({
   onSelectEvent,
   onMentionedEventsChange,
   homeLocation,
+  currentLocation,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -189,7 +191,11 @@ export default function ChatPanel({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages, homeLocation: homeLocation || undefined }),
+        body: JSON.stringify({
+          messages: newMessages,
+          homeLocation: homeLocation || undefined,
+          currentLocation: currentLocation || undefined,
+        }),
       });
 
       const reader = res.body?.getReader();

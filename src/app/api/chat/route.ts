@@ -237,7 +237,7 @@ function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): num
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, homeLocation } = await req.json();
+  const { messages, homeLocation, currentLocation } = await req.json();
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return new Response("messages required", { status: 400 });
@@ -245,15 +245,29 @@ export async function POST(req: NextRequest) {
 
   const lastUserMsg = messages.filter((m: { role: string }) => m.role === "user").pop();
   const userMsg = lastUserMsg?.content || "";
-  const isNeighborhoodQuery = /\b(my neighborhood|my hood|my area|meine gegend|meiner gegend|mein kiez|meinem kiez|bei mir zuhause|bei mir daheim)\b/i.test(userMsg);
+  const isNeighborhoodQuery = /\b(my neighborhood|my hood|meine gegend|meiner gegend|mein kiez|meinem kiez|bei mir zuhause|bei mir daheim)\b/i.test(userMsg);
+  const isAroundMeQuery = /\b(around me|near me|um mich|in der nähe|in meiner nähe|bei mir|um die ecke|nearby|hier)\b/i.test(userMsg);
 
-  const eventsContext = await fetchRelevantEvents(userMsg, isNeighborhoodQuery && homeLocation ? homeLocation : null);
+  // "my neighborhood" → home pin, "around me" → GPS, fallback to home
+  const locationForQuery = isAroundMeQuery
+    ? (currentLocation || homeLocation || null)
+    : isNeighborhoodQuery
+      ? (homeLocation || null)
+      : null;
+
+  const eventsContext = await fetchRelevantEvents(userMsg, locationForQuery);
 
   const berlinTime = new Date().toLocaleString("de-DE", { timeZone: "Europe/Berlin", weekday: "long", hour: "2-digit", minute: "2-digit", day: "numeric", month: "long", year: "numeric" });
 
   let locationContext = "";
   if (homeLocation) {
-    locationContext = `\nThe user lives at coordinates (${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}) in Berlin. When they ask about "my neighborhood", "meine Gegend", "mein Kiez", etc., prioritize events close to their home. Events marked with [NEARBY] are within 3km of the user's home. Note: if they say "around me" or "near me", that means their current location which you don't know — ask them which area they're in.\n`;
+    locationContext += `\nThe user's HOME neighborhood is at (${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}). Use this for "my neighborhood"/"mein Kiez"/"meine Gegend" queries.\n`;
+  }
+  if (currentLocation) {
+    locationContext += `The user's CURRENT GPS location is (${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}). Use this for "around me"/"near me"/"in der Nähe" queries.\n`;
+  }
+  if (locationContext) {
+    locationContext += `Events marked [NEARBY] are within 3km. Include distance in your recommendations when relevant.\n`;
   }
 
   const systemPrompt = SYSTEM_PROMPT + `\nCurrent time in Berlin: ${berlinTime}${locationContext}\nIMPORTANT: When the user asks about "right now" or "jetzt", only recommend events that have already started or start within the next 30 minutes. Do NOT recommend events starting hours later.\n\n` + eventsContext;
