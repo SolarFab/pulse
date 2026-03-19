@@ -15,6 +15,7 @@ interface Props {
   onMentionedEventsChange?: (events: Event[]) => void;
   homeLocation?: { lat: number; lng: number } | null;
   currentLocation?: { lat: number; lng: number } | null;
+  onRequestLocation?: () => Promise<{ lat: number; lng: number } | null>;
 }
 
 const QUICK_PROMPTS = [
@@ -128,6 +129,7 @@ export default function ChatPanel({
   onMentionedEventsChange,
   homeLocation,
   currentLocation,
+  onRequestLocation,
 }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -239,6 +241,22 @@ export default function ChatPanel({
     async (text: string) => {
       if (!text.trim() || streaming) return;
 
+      // Check if this is an "around me" query and we don't have GPS
+      const isAroundMe = /\b(around me|near me|um mich|in der nähe|in meiner nähe|bei mir|um die ecke|nearby|hier)\b/i.test(text);
+      if (isAroundMe && !currentLocation && onRequestLocation) {
+        const loc = await onRequestLocation();
+        if (!loc) {
+          const userMsg: Message = { role: "user", content: text.trim() };
+          setMessages((prev) => [
+            ...prev,
+            userMsg,
+            { role: "assistant", content: "I need your location to show events near you. Please allow location access in your browser and try again! 📍" },
+          ]);
+          setInput("");
+          return;
+        }
+      }
+
       const userMsg: Message = { role: "user", content: text.trim() };
       const newMessages = [...messages, userMsg];
       setMessages(newMessages);
@@ -262,7 +280,7 @@ export default function ChatPanel({
 
       setStreaming(false);
     },
-    [messages, streaming, sendViaServer]
+    [messages, streaming, sendViaServer, currentLocation, onRequestLocation]
   );
 
   return (

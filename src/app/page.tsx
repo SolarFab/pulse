@@ -148,6 +148,21 @@ export default function Home() {
     );
   }, []);
 
+  const requestLocation = useCallback((): Promise<{ lat: number; lng: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setCurrentLocation(loc);
+          resolve(loc);
+        },
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
+  }, []);
+
   const handleLogout = useCallback(async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -370,6 +385,7 @@ export default function Home() {
                   onMentionedEventsChange={setChatMentionedEvents}
                   homeLocation={homeLocation}
                   currentLocation={currentLocation}
+                  onRequestLocation={requestLocation}
                 />
               </div>
             </SwipeDownSheet>
