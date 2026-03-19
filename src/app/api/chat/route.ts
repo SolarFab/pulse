@@ -72,12 +72,13 @@ async function fetchRelevantEvents(userMessage: string): Promise<string> {
   const categoryKeywords: Record<string, string[]> = {
     music: ["music", "musik", "concert", "konzert", "live", "band"],
     nightlife: ["club", "techno", "party", "rave", "dj", "dance", "tanzen", "nightlife"],
-    culture: ["art", "kunst", "gallery", "galerie", "museum", "exhibition", "ausstellung", "culture", "kultur"],
-    entertainment: ["comedy", "theater", "theatre", "kabarett", "show", "kino", "film", "movie"],
-    market: ["market", "markt", "flohmarkt", "flea"],
-    food: ["food", "essen", "restaurant", "street food", "beer", "bier"],
-    social: ["meetup", "social", "friends", "freunde", "chill", "hang"],
-    wellness: ["yoga", "meditation", "sport", "fitness", "wellness"],
+    culture: ["art", "kunst", "gallery", "galerie", "museum", "exhibition", "ausstellung", "culture", "kultur", "theater", "theatre", "kabarett", "kino", "film", "movie", "comedy"],
+    food: ["food", "essen", "restaurant", "street food", "beer", "bier", "brunch"],
+    markets: ["market", "markt", "flohmarkt", "flea", "trödelmarkt"],
+    workshops: ["workshop", "kurs", "class", "craft", "basteln"],
+    meetups: ["meetup", "social", "friends", "freunde", "chill", "hang", "networking"],
+    outdoors: ["outdoor", "park", "yoga", "sport", "fitness", "bike", "walking tour", "draußen"],
+    family: ["kids", "kinder", "family", "familie", "children", "child", "playground", "spielplatz", "kindertheater"],
   };
 
   // Genre-specific keywords that map to a parent category
@@ -104,6 +105,61 @@ async function fetchRelevantEvents(userMessage: string): Promise<string> {
     }
   }
 
+  // Extract potential venue/location names from the message
+  // Remove common filler words and time keywords to isolate search terms
+  const stopWords = new Set([
+    "what", "whats", "what's", "is", "are", "was", "at", "in", "on", "the", "a", "an",
+    "happening", "going", "events", "event", "today", "tonight", "tomorrow", "weekend",
+    "now", "right", "please", "list", "show", "me", "some", "find", "search", "for",
+    "best", "good", "nice", "cool", "fun", "any", "do", "does", "can", "you", "i",
+    "want", "looking", "like", "near", "around", "this", "next", "week", "there",
+    "was", "gibt", "es", "und", "oder", "mir", "bitte", "zeig", "finde", "suche",
+    "heute", "morgen", "jetzt", "gerade", "abend", "nacht", "wochenende",
+    ...Object.values(categoryKeywords).flat(),
+    ...Object.keys(genreToCategory),
+  ]);
+
+  const words = msg.split(/\s+/).filter((w) => w.length > 2 && !stopWords.has(w));
+  const textQuery = words.join(" ").trim();
+
+  // If we have a text query, do a separate search by venue/title/address/neighborhood
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let textResults: any[] = [];
+  if (textQuery.length > 2) {
+    const escapedQ = textQuery.replace(/[%_]/g, "");
+    const textSearchQuery = supabase
+      .from("events")
+      .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
+      .lte("start_time", endFilter)
+      .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`)
+      .or(`venue_name.ilike.%${escapedQ}%,title.ilike.%${escapedQ}%,address.ilike.%${escapedQ}%,neighborhood.ilike.%${escapedQ}%,description.ilike.%${escapedQ}%`)
+      .order("start_time", { ascending: true })
+      .limit(30);
+
+    const { data: tData } = await textSearchQuery;
+    textResults = tData || [];
+  }
+
+  // Also try individual significant words for venue/neighborhood matching
+  const significantWords = words.filter((w) => w.length > 3);
+  if (significantWords.length > 1 && textResults.length === 0) {
+    for (const word of significantWords) {
+      const escapedW = word.replace(/[%_]/g, "");
+      const { data: wData } = await supabase
+        .from("events")
+        .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
+        .lte("start_time", endFilter)
+        .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`)
+        .or(`venue_name.ilike.%${escapedW}%,address.ilike.%${escapedW}%,neighborhood.ilike.%${escapedW}%`)
+        .order("start_time", { ascending: true })
+        .limit(20);
+      if (wData && wData.length > 0) {
+        textResults = [...textResults, ...wData.filter((e) => !textResults.some((t) => t.id === e.id))];
+      }
+    }
+  }
+
+  // Category-based query
   let query = supabase
     .from("events")
     .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
@@ -117,9 +173,29 @@ async function fetchRelevantEvents(userMessage: string): Promise<string> {
   query = query.order("start_time", { ascending: true }).limit(100);
 
   const { data } = await query;
-  if (!data || data.length === 0) return "No events found for this time period.";
 
-  return data
+  // Merge text results (prioritized) with category results
+  const seen = new Set<string>();
+  const merged: typeof data = [];
+
+  // Text search results first (most relevant for venue/location queries)
+  for (const e of textResults) {
+    if (!seen.has(e.id)) {
+      seen.add(e.id);
+      merged.push(e);
+    }
+  }
+  // Then category results
+  for (const e of (data || [])) {
+    if (!seen.has(e.id)) {
+      seen.add(e.id);
+      merged.push(e);
+    }
+  }
+
+  if (merged.length === 0) return "No events found for this time period.";
+
+  return merged.slice(0, 100)
     .map((e) => {
       const time = new Date(e.start_time).toLocaleString("de-DE", {
         weekday: "short",

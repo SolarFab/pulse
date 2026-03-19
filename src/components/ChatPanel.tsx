@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Event } from "@/lib/types";
-import { getApiKey, sendChatMessage as sendBYOMessage } from "@/lib/llm-chat";
 
 interface Message {
   role: "user" | "assistant";
@@ -135,9 +134,6 @@ export default function ChatPanel({
   // Combined events: frontend events + any fetched chat events
   const allEvents = [...events, ...chatEvents.filter((ce) => !events.some((e) => e.id === ce.id))];
 
-  // Check if user has BYO key (for unlimited mode)
-  const hasBYOKey = typeof window !== "undefined" && !!getApiKey();
-
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -231,28 +227,6 @@ export default function ChatPanel({
     []
   );
 
-  // Send via BYO OpenAI key (if configured)
-  const sendViaBYO = useCallback(
-    async (newMessages: Message[]) => {
-      let fullText = "";
-      await sendBYOMessage(
-        newMessages,
-        (chunk) => {
-          fullText += chunk;
-          setMessages((prev) => {
-            const updated = [...prev];
-            updated[updated.length - 1] = {
-              role: "assistant",
-              content: fullText,
-            };
-            return updated;
-          });
-        }
-      );
-    },
-    []
-  );
-
   const sendMessage = useCallback(
     async (text: string) => {
       if (!text.trim() || streaming) return;
@@ -266,11 +240,7 @@ export default function ChatPanel({
       setMessages([...newMessages, { role: "assistant", content: "" }]);
 
       try {
-        if (hasBYOKey) {
-          await sendViaBYO(newMessages);
-        } else {
-          await sendViaServer(newMessages);
-        }
+        await sendViaServer(newMessages);
       } catch {
         setMessages((prev) => {
           const updated = [...prev];
@@ -284,7 +254,7 @@ export default function ChatPanel({
 
       setStreaming(false);
     },
-    [messages, streaming, hasBYOKey, sendViaServer, sendViaBYO]
+    [messages, streaming, sendViaServer]
   );
 
   return (

@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Profile, CATEGORIES, SUBCATEGORIES } from "@/lib/types";
 import NotificationSettings from "@/components/NotificationSettings";
-import { getApiKey, setApiKey, removeApiKey } from "@/lib/llm-chat";
 
 interface ProfilePageProps {
   onBack: () => void;
@@ -21,14 +20,7 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
   const [saved, setSaved] = useState(false);
   const [email, setEmail] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
-  const [apiKey, setApiKeyState] = useState("");
-  const [apiKeySaved, setApiKeySaved] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setHasApiKey(!!getApiKey());
-  }, []);
 
   useEffect(() => {
     async function load() {
@@ -263,60 +255,6 @@ export default function ProfilePage({ onBack, onLogout }: ProfilePageProps) {
         >
           {saving ? "Saving..." : saved ? "Saved!" : "Save changes"}
         </button>
-
-        {/* AI Settings */}
-        <div className="mb-6">
-          <label className="text-xs font-medium text-gray-500 mb-3 block">
-            AI Chat (OpenAI)
-          </label>
-          {hasApiKey ? (
-            <div className="bg-white rounded-2xl border border-gray-100 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">API Key connected</p>
-                  <p className="text-xs text-gray-400">sk-...{getApiKey()?.slice(-4)}</p>
-                </div>
-                <button
-                  onClick={() => {
-                    removeApiKey();
-                    setHasApiKey(false);
-                    setApiKeyState("");
-                  }}
-                  className="text-xs text-red-500 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-2">
-              <p className="text-xs text-gray-500">
-                Connect your OpenAI API key to power the AI chat. Stored locally in your browser only.
-              </p>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKeyState(e.target.value)}
-                placeholder="sk-..."
-                className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-2 focus:ring-black/10"
-              />
-              <button
-                onClick={() => {
-                  if (apiKey.trim().startsWith("sk-")) {
-                    setApiKey(apiKey.trim());
-                    setHasApiKey(true);
-                    setApiKeySaved(true);
-                    setTimeout(() => setApiKeySaved(false), 2000);
-                  }
-                }}
-                disabled={!apiKey.trim().startsWith("sk-")}
-                className="w-full py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold disabled:opacity-30 transition"
-              >
-                {apiKeySaved ? "Saved!" : "Save Key"}
-              </button>
-            </div>
-          )}
-        </div>
 
         {/* Settings links */}
         <div className="bg-white rounded-2xl border border-gray-100 mb-6 overflow-hidden">
