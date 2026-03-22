@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   if (ids) {
     const idList = ids.split(",").filter(Boolean);
     const { data, error } = await supabase
-      .from("events")
+      .from("events_with_coords")
       .select("id,title,venue_name,lat,lng,neighborhood,address,start_time,end_time,category,subcategory,tags,description,price,image_url,source,source_url")
       .in("id", idList);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -150,7 +150,7 @@ export async function GET(req: NextRequest) {
 
   // Query 1: Events starting within the time window
   let q1 = supabase
-    .from("events")
+    .from("events_with_coords")
     .select(selectCols)
     .gte("start_time", startFilter)
     .lte("start_time", endFilter);
@@ -162,7 +162,7 @@ export async function GET(req: NextRequest) {
   const lookbackMs = isShortWindow ? 48 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
   const ongoingCutoff = new Date(windowStart.getTime() - lookbackMs).toISOString();
   let q2 = supabase
-    .from("events")
+    .from("events_with_coords")
     .select(selectCols)
     .lt("start_time", startFilter)
     .gte("start_time", ongoingCutoff)

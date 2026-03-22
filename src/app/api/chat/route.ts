@@ -128,7 +128,7 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
   if (textQuery.length > 2) {
     const escapedQ = textQuery.replace(/[%_]/g, "");
     const textSearchQuery = supabase
-      .from("events")
+      .from("events_with_coords")
       .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
       .lte("start_time", endFilter)
       .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`)
@@ -146,7 +146,7 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
     for (const word of significantWords) {
       const escapedW = word.replace(/[%_]/g, "");
       const { data: wData } = await supabase
-        .from("events")
+        .from("events_with_coords")
         .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
         .lte("start_time", endFilter)
         .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`)
@@ -161,7 +161,7 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
 
   // Category-based query
   let query = supabase
-    .from("events")
+    .from("events_with_coords")
     .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
     .lte("start_time", endFilter)
     .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`);

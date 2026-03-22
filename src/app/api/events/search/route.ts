@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   const endFilter = toDate || weekStr;
 
   let query = supabase
-    .from("events")
+    .from("events_with_coords")
     .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,lat,lng")
     .gte("start_time", `${startFilter}T00:00:00`)
     .lte("start_time", `${endFilter}T23:59:59`);
