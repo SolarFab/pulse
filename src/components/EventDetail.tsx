@@ -120,10 +120,10 @@ function EventContent({
   function buildICS(evt: Event): string {
     const { start, end, location, desc } = calendarData(evt);
     return [
-      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Whatsupp//Event//EN", "BEGIN:VEVENT",
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Pulse//Event//EN", "BEGIN:VEVENT",
       `DTSTART:${start}`, `DTEND:${end}`, `SUMMARY:${evt.title}`, `LOCATION:${location}`,
       `DESCRIPTION:${desc.replace(/\n/g, "\\n")}`, evt.source_url ? `URL:${evt.source_url}` : "",
-      `UID:${evt.id}@whatsupp.app`, "END:VEVENT", "END:VCALENDAR",
+      `UID:${evt.id}@pulse.app`, "END:VEVENT", "END:VCALENDAR",
     ].filter(Boolean).join("\r\n");
   }
 

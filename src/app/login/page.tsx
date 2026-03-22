@@ -47,7 +47,7 @@ function LoginForm() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#faf9f6] px-6">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-center mb-1">NachtKarte</h1>
+        <h1 className="text-2xl font-bold text-center mb-1">Pulse</h1>
         <p className="text-sm text-gray-500 text-center mb-8">
           Berlin event discovery
         </p>

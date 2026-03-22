@@ -249,7 +249,7 @@ export default function Filters({
         {/* Header */}
         <div className="flex items-center justify-between mb-2.5 px-0.5 pt-2">
           <h1 className="text-lg font-extrabold text-gray-900 tracking-tight">
-            Whatsupp
+            Pulse
           </h1>
           <span className="text-xs text-gray-400 tabular-nums font-medium">
             {eventCount} events

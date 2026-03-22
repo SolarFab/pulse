@@ -82,7 +82,7 @@ export default function SignupPage() {
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-bold text-center mb-1">Create account</h1>
         <p className="text-sm text-gray-500 text-center mb-8">
-          Join NachtKarte
+          Join Pulse
         </p>
 
         {error && (
