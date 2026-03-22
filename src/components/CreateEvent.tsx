@@ -2,15 +2,16 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import ScanFlyer from "./ScanFlyer";
 
 interface Props {
   onClose: () => void;
   onCreated: () => void;
 }
 
-type View = "menu" | "host" | "host-done" | "tip" | "tip-done";
+type View = "menu" | "host" | "host-done" | "tip" | "tip-done" | "scan";
 
-export default function CreateEvent({ onClose }: Props) {
+export default function CreateEvent({ onClose, onCreated }: Props) {
   const [view, setView] = useState<View>("menu");
   const [email, setEmail] = useState("");
   const [orgName, setOrgName] = useState("");
@@ -180,6 +181,24 @@ export default function CreateEvent({ onClose }: Props) {
               </div>
             </div>
           </button>
+
+          <button
+            onClick={() => setView("scan")}
+            className="bg-white rounded-2xl border border-gray-100 p-5 text-left active:bg-gray-50 transition shadow-sm"
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-11 h-11 rounded-full bg-gray-900 flex items-center justify-center flex-shrink-0">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-[15px] font-semibold text-gray-900">Scan a flyer</p>
+                <p className="text-[13px] text-gray-500 mt-0.5">Snap a photo of a poster or flyer and we'll add the event automatically.</p>
+              </div>
+            </div>
+          </button>
         </div>
       </div>
     );
@@ -331,6 +350,16 @@ export default function CreateEvent({ onClose }: Props) {
           </div>
         </div>
       </div>
+    );
+  }
+
+  // Scan flyer
+  if (view === "scan") {
+    return (
+      <ScanFlyer
+        onClose={onClose}
+        onSaved={() => { onCreated(); onClose(); }}
+      />
     );
   }
 
