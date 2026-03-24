@@ -138,6 +138,21 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
 
     const { data: tData } = await textSearchQuery;
     textResults = tData || [];
+
+    // Secondary search: if text search found 0 results within time window,
+    // look for upcoming events at this venue without time filter
+    if (textResults.length === 0) {
+      const { data: upcomingData } = await supabase
+        .from("events_with_coords")
+        .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
+        .gt("start_time", new Date().toISOString())
+        .or(`venue_name.ilike.%${escapedQ}%,title.ilike.%${escapedQ}%`)
+        .order("start_time", { ascending: true })
+        .limit(5);
+      if (upcomingData && upcomingData.length > 0) {
+        textResults = upcomingData.map((e) => ({ ...e, _upcoming: true }));
+      }
+    }
   }
 
   // Also try individual significant words for venue/neighborhood matching
@@ -222,7 +237,8 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
       const dist = homeLocation && e.lat && e.lng ? distanceKm(homeLocation.lat, homeLocation.lng, e.lat, e.lng) : null;
       const nearbyTag = dist !== null && dist < 3 ? " [NEARBY]" : "";
       const distStr = dist !== null ? ` | ${dist < 1 ? Math.round(dist * 1000) + "m" : dist.toFixed(1) + "km"} away` : "";
-      return `[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"})${nearbyTag} | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"}${distStr} | ${e.description || "No description"}${e.tags?.length ? " | Tags: " + e.tags.join(", ") : ""}`;
+      const upcomingTag = e._upcoming ? "UPCOMING (outside requested time window): " : "";
+      return `${upcomingTag}[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"})${nearbyTag} | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"}${distStr} | ${e.description || "No description"}${e.tags?.length ? " | Tags: " + e.tags.join(", ") : ""}`;
     })
     .join("\n");
 }
