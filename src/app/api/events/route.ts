@@ -69,7 +69,9 @@ export async function GET(req: NextRequest) {
       .select("id,title,venue_name,lat,lng,neighborhood,address,start_time,end_time,category,subcategory,tags,description,price,image_url,source,source_url")
       .in("id", idList);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json(data || []);
+    const resp = NextResponse.json(data || []);
+    resp.headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+    return resp;
   }
 
   const timeFilter = params.get("time") || "today";
@@ -214,5 +216,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data || []);
+  const response = NextResponse.json(data || []);
+  // Events only change once/day (4am scrape) — cache for 5min, serve stale while revalidating
+  response.headers.set("Cache-Control", "public, s-maxage=300, stale-while-revalidate=600");
+  return response;
 }

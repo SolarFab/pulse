@@ -252,7 +252,22 @@ function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): num
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Simple in-memory rate limit: max 20 requests per IP per minute
+const rateLimit = new Map<string, { count: number; reset: number }>();
+
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const now = Date.now();
+  const entry = rateLimit.get(ip);
+  if (entry && now < entry.reset) {
+    entry.count++;
+    if (entry.count > 20) {
+      return new Response("Too many requests", { status: 429 });
+    }
+  } else {
+    rateLimit.set(ip, { count: 1, reset: now + 60_000 });
+  }
+
   const { messages, homeLocation, currentLocation } = await req.json();
 
   if (!messages || !Array.isArray(messages) || messages.length === 0) {

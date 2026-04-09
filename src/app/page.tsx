@@ -113,11 +113,15 @@ export default function Home() {
       if (!user) return;
       setUserId(user.id);
 
-      const { data } = await supabase
-        .from("profiles")
-        .select("onboarding_completed, genres, subcategories, home_lat, home_lng")
-        .eq("id", user.id)
-        .single();
+      // Fetch profile and bookmarks in parallel — they don't depend on each other
+      const [{ data }, bm] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("onboarding_completed, genres, subcategories, home_lat, home_lng")
+          .eq("id", user.id)
+          .single(),
+        getMyBookmarks(),
+      ]);
 
       if (data) {
         const forceOnboarding = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("onboarding") === "true";
@@ -131,8 +135,6 @@ export default function Home() {
         }
       }
 
-      // Load bookmarks
-      const bm = await getMyBookmarks();
       setBookmarks(bm);
     }
     init();
