@@ -51,9 +51,15 @@ function getBerlinComponents(): { year: number; month: number; day: number; hour
 
 function makeBerlinISO(year: number, month: number, day: number, h: number, m: number, s: number): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
-  // Determine if DST is active for this date (rough: last Sunday of March to last Sunday of October)
-  // For March 2026, DST starts March 29 — so March 12 is still CET (+01:00)
-  const offset = "+01:00"; // CET — good enough for March
+  // Determine Berlin UTC offset: CEST (+02:00) from last Sunday of March to last Sunday of October
+  const lastSunday = (m: number, y: number) => {
+    const d = new Date(y, m, 0); // last day of month
+    return d.getDate() - d.getDay();
+  };
+  const dstStart = new Date(year, 2, lastSunday(3, year), 2, 0, 0); // March last Sunday 2am
+  const dstEnd = new Date(year, 9, lastSunday(10, year), 3, 0, 0);  // October last Sunday 3am
+  const target = new Date(year, month - 1, day, h, m, s);
+  const offset = target >= dstStart && target < dstEnd ? "+02:00" : "+01:00";
   return `${year}-${pad(month)}-${pad(day)}T${pad(h)}:${pad(m)}:${pad(s)}${offset}`;
 }
 
