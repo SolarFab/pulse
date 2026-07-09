@@ -245,7 +245,9 @@ export default function Filters({
         />
       )}
 
-      <div className="relative z-50 bg-gradient-to-b from-white/90 via-white/70 to-transparent backdrop-blur-sm pointer-events-auto pt-[env(safe-area-inset-top)] px-3 pb-4">
+      {/* No backdrop-blur here: blurring over the WebGL map canvas forces a
+          recomposite on every map frame and janks panning on mobile */}
+      <div className="relative z-50 bg-gradient-to-b from-white/95 via-white/80 to-transparent pointer-events-auto pt-[env(safe-area-inset-top)] px-3 pb-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-2.5 px-0.5 pt-2">
           <h1 className="text-lg font-extrabold text-gray-900 tracking-tight">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { Event, CATEGORIES } from "@/lib/types";
+import { Event, CATEGORIES, isAllDayEvent, formatEventTime } from "@/lib/types";
 import { BookmarkStatus } from "@/lib/bookmarks";
 import { createClient } from "@/lib/supabase/client";
 
@@ -14,13 +14,6 @@ interface Props {
   userGenres?: string[];
   userSubcategories?: Record<string, string[]>;
   homeLocation?: { lat: number; lng: number } | null;
-}
-
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function formatDate(iso: string): string {
@@ -127,10 +120,15 @@ export default function EventList({ events, onSelectEvent, bookmarks = {}, userG
   const displayEvents = useMemo(() => {
     const hasPrefs = genreSet.size > 0;
     const hasHome = !!homeLocation;
-    if (!hasPrefs && !hasHome) return rawDisplayEvents;
     return [...rawDisplayEvents].sort((a, b) => {
-      const diff = combinedScore(b) - combinedScore(a);
-      if (diff !== 0) return diff;
+      if (hasPrefs || hasHome) {
+        const diff = combinedScore(b) - combinedScore(a);
+        if (diff !== 0) return diff;
+      }
+      // Timed events before all-day ones — all-day entries carry midnight
+      // timestamps and would otherwise permanently occupy the top of the list
+      const allDayDiff = Number(isAllDayEvent(a)) - Number(isAllDayEvent(b));
+      if (allDayDiff !== 0) return allDayDiff;
       // Tiebreaker: closer first, then time
       if (hasHome) {
         const distDiff = getDistance(a) - getDistance(b);
@@ -225,8 +223,7 @@ export default function EventList({ events, onSelectEvent, bookmarks = {}, userG
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
                   {!isToday(event.start_time) && `${formatDate(event.start_time)} \u00B7 `}
-                  {formatTime(event.start_time)}
-                  {event.end_time && ` \u2013 ${formatTime(event.end_time)}`}
+                  {formatEventTime(event)}
                   {event.price && ` \u00B7 ${event.price}`}
                 </p>
               </div>

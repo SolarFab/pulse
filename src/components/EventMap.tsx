@@ -34,6 +34,16 @@ export default function EventMap({
   const mapReady = useRef(false);
   const pulseAnimation = useRef<number | null>(null);
 
+  // Click handlers are registered once on init; they read the latest props
+  // through these refs instead of re-registering on every render (re-adding
+  // named handlers via on/off leaks — the old function reference never matches).
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
+  const onSelectEventRef = useRef(onSelectEvent);
+  onSelectEventRef.current = onSelectEvent;
+  const onSelectVenueEventsRef = useRef(onSelectVenueEvents);
+  onSelectVenueEventsRef.current = onSelectVenueEvents;
+
   const buildGeoJSON = useCallback(
     (evts: Event[]): GeoJSON.FeatureCollection => {
       // Group events by location (rounded to ~10m) to show count badges
@@ -179,27 +189,28 @@ export default function EventMap({
       map.current = m;
     });
 
-    // Click on pin — find all events at this venue
+    // Click on pin — find all events at this venue (reads latest props via refs)
     m.on("click", LAYER_ID, (e) => {
       const feature = e.features?.[0];
       if (!feature) return;
       const id = feature.properties?.id;
-      const evt = events.find((ev) => ev.id === id);
+      const evts = eventsRef.current;
+      const evt = evts.find((ev) => ev.id === id);
       if (!evt) return;
       // Find all events at the same location
       const locKey = `${evt.lat!.toFixed(4)},${evt.lng!.toFixed(4)}`;
-      const venueEvents = events.filter(
+      const venueEvents = evts.filter(
         (ev) => ev.lat && ev.lng && `${ev.lat!.toFixed(4)},${ev.lng!.toFixed(4)}` === locKey
       );
-      if (venueEvents.length > 1 && onSelectVenueEvents) {
-        onSelectVenueEvents(venueEvents);
+      if (venueEvents.length > 1 && onSelectVenueEventsRef.current) {
+        onSelectVenueEventsRef.current(venueEvents);
       } else {
-        onSelectEvent(evt);
+        onSelectEventRef.current(evt);
       }
     });
 
     m.on("click", SELECTED_LAYER_ID, () => {
-      onSelectEvent(null);
+      onSelectEventRef.current(null);
     });
 
     m.on("mouseenter", LAYER_ID, () => {
@@ -220,7 +231,7 @@ export default function EventMap({
         layers: [LAYER_ID, SELECTED_LAYER_ID],
       });
       if (features.length === 0) {
-        onSelectEvent(null);
+        onSelectEventRef.current(null);
       }
     });
 
@@ -255,36 +266,6 @@ export default function EventMap({
       m.on("load", update);
     }
   }, [events, selectedEvent, buildGeoJSON]);
-
-  // Update click handler
-  useEffect(() => {
-    const m = map.current;
-    if (!m) return;
-
-    const handler = (
-      e: maplibregl.MapMouseEvent & {
-        features?: maplibregl.MapGeoJSONFeature[];
-      }
-    ) => {
-      const feature = e.features?.[0];
-      if (!feature) return;
-      const id = feature.properties?.id;
-      const evt = events.find((ev) => ev.id === id);
-      if (!evt) return;
-      const locKey = `${evt.lat!.toFixed(4)},${evt.lng!.toFixed(4)}`;
-      const venueEvents = events.filter(
-        (ev) => ev.lat && ev.lng && `${ev.lat!.toFixed(4)},${ev.lng!.toFixed(4)}` === locKey
-      );
-      if (venueEvents.length > 1 && onSelectVenueEvents) {
-        onSelectVenueEvents(venueEvents);
-      } else {
-        onSelectEvent(evt);
-      }
-    };
-
-    m.off("click", LAYER_ID, handler);
-    m.on("click", LAYER_ID, handler);
-  }, [events, onSelectEvent, onSelectVenueEvents]);
 
   // Fly to selected
   useEffect(() => {

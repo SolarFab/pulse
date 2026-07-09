@@ -73,6 +73,8 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabase
       .from("events_with_coords")
       .select("id,title,venue_name,lat,lng,neighborhood,address,start_time,end_time,category,subcategory,tags,description,price,image_url,source,source_url")
+      .eq("status", "active")
+      .eq("is_active", true)
       .in("id", idList);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const resp = NextResponse.json(data || []);
@@ -151,7 +153,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const selectCols = "id,title,venue_name,lat,lng,neighborhood,address,start_time,end_time,category,subcategory,tags,description,price,image_url,source,source_url";
+  // Trimmed payload: map pins and list rows only need these fields.
+  // Full records (description, tags, image, links) load on demand via ?ids=.
+  const selectCols = "id,title,venue_name,lat,lng,neighborhood,start_time,end_time,category,subcategory,price,source";
 
   const now = new Date();
   const windowStart = new Date(startFilter);
@@ -160,6 +164,8 @@ export async function GET(req: NextRequest) {
   let q1 = supabase
     .from("events_with_coords")
     .select(selectCols)
+    .eq("status", "active")
+    .eq("is_active", true)
     .gte("start_time", startFilter)
     .lte("start_time", endFilter);
 
@@ -172,6 +178,8 @@ export async function GET(req: NextRequest) {
   let q2 = supabase
     .from("events_with_coords")
     .select(selectCols)
+    .eq("status", "active")
+    .eq("is_active", true)
     .lt("start_time", startFilter)
     .gte("start_time", ongoingCutoff)
     .gte("end_time", startFilter);

@@ -130,6 +130,8 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
     const textSearchQuery = supabase
       .from("events_with_coords")
       .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
+      .eq("status", "active")
+      .eq("is_active", true)
       .lte("start_time", endFilter)
       .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`)
       .or(`venue_name.ilike.%${escapedQ}%,title.ilike.%${escapedQ}%,address.ilike.%${escapedQ}%,neighborhood.ilike.%${escapedQ}%,description.ilike.%${escapedQ}%`)
@@ -145,6 +147,8 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
       const { data: upcomingData } = await supabase
         .from("events_with_coords")
         .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
+      .eq("status", "active")
+      .eq("is_active", true)
         .gt("start_time", new Date().toISOString())
         .or(`venue_name.ilike.%${escapedQ}%,title.ilike.%${escapedQ}%`)
         .order("start_time", { ascending: true })
@@ -163,6 +167,8 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
       const { data: wData } = await supabase
         .from("events_with_coords")
         .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
+      .eq("status", "active")
+      .eq("is_active", true)
         .lte("start_time", endFilter)
         .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`)
         .or(`venue_name.ilike.%${escapedW}%,address.ilike.%${escapedW}%,neighborhood.ilike.%${escapedW}%`)
@@ -178,6 +184,8 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
   let query = supabase
     .from("events_with_coords")
     .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
+      .eq("status", "active")
+      .eq("is_active", true)
     .lte("start_time", endFilter)
     .or(`end_time.gte.${startFilter},end_time.is.null,start_time.gte.${startFilter}`);
 
@@ -237,8 +245,11 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
       const dist = homeLocation && e.lat && e.lng ? distanceKm(homeLocation.lat, homeLocation.lng, e.lat, e.lng) : null;
       const nearbyTag = dist !== null && dist < 3 ? " [NEARBY]" : "";
       const distStr = dist !== null ? ` | ${dist < 1 ? Math.round(dist * 1000) + "m" : dist.toFixed(1) + "km"} away` : "";
-      const upcomingTag = e._upcoming ? "UPCOMING (outside requested time window): " : "";
-      return `${upcomingTag}[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"})${nearbyTag} | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"}${distStr} | ${e.description || "No description"}${e.tags?.length ? " | Tags: " + e.tags.join(", ") : ""}`;
+      const upcomingTag = (e as { _upcoming?: boolean })._upcoming ? "UPCOMING (outside requested time window): " : "";
+      // Truncate descriptions — full text multiplies prompt tokens without
+      // improving recommendations
+      const desc = (e.description || "No description").slice(0, 200);
+      return `${upcomingTag}[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"})${nearbyTag} | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"}${distStr} | ${desc}`;
     })
     .join("\n");
 }

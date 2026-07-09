@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Event, CATEGORIES } from "@/lib/types";
+import { Event, CATEGORIES, isAllDayEvent, formatEventTime } from "@/lib/types";
 import { BookmarkStatus, toggleBookmark, getEventCounts } from "@/lib/bookmarks";
 
 interface Props {
@@ -34,10 +34,12 @@ function isBeforeToday(iso: string): boolean {
   );
 }
 
-function smartDateLabel(startTime: string, endTime: string | null): string {
+function smartDateLabel(event: Pick<Event, "start_time" | "end_time" | "category">): string {
+  const { start_time: startTime, end_time: endTime } = event;
   const startIsOld = isBeforeToday(startTime);
-  const time = formatTime(startTime);
-  const endStr = endTime ? ` \u2013 ${formatTime(endTime)}` : "";
+  const allDay = isAllDayEvent(event);
+  const time = allDay ? "All day" : formatTime(startTime);
+  const endStr = !allDay && endTime ? ` \u2013 ${formatTime(endTime)}` : "";
 
   if (startIsOld && endTime) {
     const endDate = new Date(endTime);
@@ -148,7 +150,7 @@ function EventContent({
   }
 
   async function handleShare() {
-    const text = `${event.title} @ ${event.venue_name}\n${formatDate(event.start_time)} ${formatTime(event.start_time)}`;
+    const text = `${event.title} @ ${event.venue_name}\n${formatDate(event.start_time)} ${formatEventTime(event)}`;
     const shareData: ShareData = {
       title: event.title,
       text,
@@ -200,7 +202,7 @@ function EventContent({
       </p>
 
       <p className="text-[13px] text-gray-600 mb-2 font-medium">
-        {smartDateLabel(event.start_time, event.end_time)}
+        {smartDateLabel(event)}
       </p>
 
       {event.tags && event.tags.length > 0 && (
@@ -334,6 +336,27 @@ function EventContent({
 }
 
 export default function EventDetail({ event, onClose, embedded, bookmarkStatus, onBookmarkChange }: Props) {
+  // The list/map payload is trimmed — load the full record (description,
+  // tags, image, links) on demand. `description === undefined` marks a
+  // summary; null means "loaded, but has no description".
+  const [fullEvent, setFullEvent] = useState<Event>(event);
+  useEffect(() => {
+    setFullEvent(event);
+    if (event.description !== undefined) return;
+    let cancelled = false;
+    fetch(`/api/events?ids=${event.id}`)
+      .then((res) => res.json())
+      .then((data: Event[]) => {
+        if (!cancelled && Array.isArray(data) && data[0]) {
+          setFullEvent({ ...event, ...data[0] });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [event]);
+
   const cat = CATEGORIES[event.category] || CATEGORIES.culture;
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef(0);
@@ -378,7 +401,7 @@ export default function EventDetail({ event, onClose, embedded, bookmarkStatus, 
   if (embedded) {
     return (
       <div className="px-4 pb-5">
-        <EventContent event={event} cat={cat} bookmarkStatus={bookmarkStatus} onBookmarkChange={onBookmarkChange} />
+        <EventContent event={fullEvent} cat={cat} bookmarkStatus={bookmarkStatus} onBookmarkChange={onBookmarkChange} />
       </div>
     );
   }
@@ -403,7 +426,7 @@ export default function EventDetail({ event, onClose, embedded, bookmarkStatus, 
 
         {/* Scrollable content */}
         <div className="overflow-y-auto overscroll-contain flex-1 min-h-0 px-4 pb-5">
-          <EventContent event={event} cat={cat} bookmarkStatus={bookmarkStatus} onBookmarkChange={onBookmarkChange} />
+          <EventContent event={fullEvent} cat={cat} bookmarkStatus={bookmarkStatus} onBookmarkChange={onBookmarkChange} />
         </div>
       </div>
     </div>

@@ -1,24 +1,26 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = [
-  "/login",
-  "/signup",
-  "/forgot-password",
-  "/update-password",
-  "/auth/callback",
-];
-
+// Browsing is public (PRD: "no login, no friction") — the middleware never
+// redirects. Its only job is refreshing the Supabase session cookie for
+// users who are already signed in; anonymous visitors skip the auth
+// roundtrip entirely.
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow public pages, API routes, and static assets
   if (
-    PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
     pathname.startsWith("/api/") ||
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico"
   ) {
+    return NextResponse.next();
+  }
+
+  // No Supabase auth cookie → nothing to refresh
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith("sb-") && c.name.includes("-auth-token"));
+  if (!hasAuthCookie) {
     return NextResponse.next();
   }
 
@@ -45,15 +47,8 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
-    return NextResponse.redirect(loginUrl);
-  }
+  // Refreshes expired tokens and updates cookies via setAll above
+  await supabase.auth.getUser();
 
   return supabaseResponse;
 }

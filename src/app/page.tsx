@@ -10,7 +10,7 @@ import ChatPanel from "@/components/ChatPanel";
 import CreateEvent from "@/components/CreateEvent";
 import ProfilePage from "@/components/ProfilePage";
 import Onboarding from "@/components/Onboarding";
-import { Event, TimeFilter, CATEGORIES } from "@/lib/types";
+import { Event, TimeFilter, CATEGORIES, formatEventTime } from "@/lib/types";
 import type { DateRange } from "@/components/Filters";
 import { createClient } from "@/lib/supabase/client";
 import { BookmarkStatus, getMyBookmarks } from "@/lib/bookmarks";
@@ -172,8 +172,12 @@ export default function Home() {
     router.refresh();
   }, [router]);
 
+  // Session-lived cache per filter combination: cached results render
+  // instantly (stale-while-revalidate), and pins stay on screen during
+  // refetches instead of blanking.
+  const eventsCache = useRef<Map<string, Event[]>>(new Map());
+
   const fetchEvents = useCallback(async () => {
-    setLoading(true);
     const catParam =
       activeCategories.size > 0
         ? `&categories=${Array.from(activeCategories).join(",")}`
@@ -183,14 +187,27 @@ export default function Home() {
         ? `&from=${dateRange.from}&to=${dateRange.to}`
         : "";
     const tagParam = activeSubtag ? `&tag=${activeSubtag}` : "";
+    const url = `/api/events?time=${timeFilter}${catParam}${dateParam}${tagParam}`;
+
+    const cached = eventsCache.current.get(url);
+    if (cached) {
+      setEvents(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      const res = await fetch(
-        `/api/events?time=${timeFilter}${catParam}${dateParam}${tagParam}`
-      );
+      const res = await fetch(url);
       const data = await res.json();
-      setEvents(Array.isArray(data) ? data : []);
+      if (Array.isArray(data)) {
+        eventsCache.current.set(url, data);
+        setEvents(data);
+      } else if (!cached) {
+        setEvents([]);
+      }
     } catch {
-      setEvents([]);
+      if (!cached) setEvents([]);
     }
     setLoading(false);
   }, [timeFilter, activeCategories, dateRange, activeSubtag]);
@@ -443,8 +460,7 @@ export default function Home() {
                           <p className="text-xs text-gray-500">
                             {new Date(event.start_time).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })}
                             {" \u00B7 "}
-                            {new Date(event.start_time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                            {event.end_time && ` \u2013 ${new Date(event.end_time).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`}
+                            {formatEventTime(event)}
                           </p>
                           {event.price && (
                             <p className="text-xs text-gray-400 mt-0.5">{event.price}</p>
@@ -560,7 +576,7 @@ export default function Home() {
           <span className="text-[10px] font-semibold">Events</span>
         </button>
         <button
-          onClick={() => setView("profile")}
+          onClick={() => (userId ? setView("profile") : router.push("/login"))}
           className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition ${
             view === "profile" ? "text-gray-900 bg-gray-100" : "text-gray-400"
           }`}

@@ -5,17 +5,46 @@ export interface Event {
   lat: number | null;
   lng: number | null;
   neighborhood: string | null;
-  address: string | null;
   start_time: string;
   end_time: string | null;
   category: string;
   subcategory: string | null;
-  tags: string[] | null;
-  description: string | null;
   price: string | null;
-  image_url: string | null;
   source: string;
-  source_url: string | null;
+  // Detail-only fields — absent in the trimmed list payload,
+  // loaded on demand via /api/events?ids=<id>
+  address?: string | null;
+  tags?: string[] | null;
+  description?: string | null;
+  image_url?: string | null;
+  source_url?: string | null;
+}
+
+// All-day events are stored as Berlin midnight. Older pipeline data used a
+// hardcoded +01:00 offset, so in summer (CEST) those timestamps render as
+// 01:00 — detect both signatures. Nightlife is exempt: a 01:00 club start is
+// plausible there.
+export function isAllDayEvent(e: Pick<Event, "start_time" | "category">): boolean {
+  const d = new Date(e.start_time);
+  const berlin = new Intl.DateTimeFormat("de-DE", {
+    timeZone: "Europe/Berlin",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+  if (berlin === "00:00") return true;
+  // Legacy bug signature: 00:00+01:00 stored during CEST → 23:00 UTC
+  if (e.category !== "nightlife" && d.getUTCHours() === 23 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && berlin === "01:00") {
+    return true;
+  }
+  return false;
+}
+
+export function formatEventTime(e: Pick<Event, "start_time" | "end_time" | "category">): string {
+  if (isAllDayEvent(e)) return "All day";
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleTimeString("de-DE", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit" });
+  return `${fmt(e.start_time)}${e.end_time ? ` – ${fmt(e.end_time)}` : ""}`;
 }
 
 export interface Profile {
