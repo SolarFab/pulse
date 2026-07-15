@@ -3,7 +3,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase/admin";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Dedicated concierge key (separate spend limit from the pipeline's
+// classification key); falls back to the shared key if not set.
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY_CONCIERGE || process.env.ANTHROPIC_API_KEY,
+});
 
 const SYSTEM_PROMPT = `You are Pulse, a warm and opinionated Berlin event concierge. You know the city inside out — the underground spots, the tourist traps to avoid, and where the real magic happens on any given night.
 
@@ -314,16 +318,16 @@ export async function POST(req: NextRequest) {
 
   let locationContext = "";
   if (homeLocation) {
-    locationContext += `\nThe user's HOME neighborhood is at (${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}). Use this for "my neighborhood"/"mein Kiez"/"meine Gegend" queries.\n`;
+    locationContext += `\nThe user's HOME neighborhood is at (${homeLocation.lat.toFixed(4)}, ${homeLocation.lng.toFixed(4)}). Use this for \"my neighborhood\"/\"mein Kiez\"/\"meine Gegend\" queries.\n`;
   }
   if (currentLocation) {
-    locationContext += `The user's CURRENT GPS location is (${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}). Use this for "around me"/"near me"/"in der Nähe" queries.\n`;
+    locationContext += `The user's CURRENT GPS location is (${currentLocation.lat.toFixed(4)}, ${currentLocation.lng.toFixed(4)}). Use this for \"around me\"/\"near me\"/\"in der Nähe\" queries.\n`;
   }
   if (locationContext) {
     locationContext += `Events marked [NEARBY] are within 3km. Include distance in your recommendations when relevant.\n`;
   }
 
-  const systemPrompt = SYSTEM_PROMPT + `\nCurrent time in Berlin: ${berlinTime}${locationContext}\nIMPORTANT: When the user asks about "right now" or "jetzt", only recommend events that have already started or start within the next 30 minutes. Do NOT recommend events starting hours later.\n\n` + eventsContext;
+  const systemPrompt = SYSTEM_PROMPT + `\nCurrent time in Berlin: ${berlinTime}${locationContext}\nIMPORTANT: When the user asks about \"right now\" or \"jetzt\", only recommend events that have already started or start within the next 30 minutes. Do NOT recommend events starting hours later.\n\n` + eventsContext;
 
   const stream = anthropic.messages.stream({
     model: "claude-haiku-4-5-20251001",
