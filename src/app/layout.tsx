@@ -16,12 +16,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "NachtKarte — Berlin Events",
-  description: "Discover what’s happening in Berlin right now. Live event map with AI concierge.",
+  title: "Pulse — every event in Berlin, on one map",
+  description: "Pulse tracks every concert, market, kids event and pop-up in Berlin — live on an interactive map, with an AI concierge you can simply ask.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NachtKarte",
+    title: "Pulse",
   },
 };
 
