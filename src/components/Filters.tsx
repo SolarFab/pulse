@@ -171,7 +171,7 @@ export default function Filters({
       if (dateRange.from === dateRange.to) {
         return fmtShort(dateRange.from);
       }
-      return `${fmtShort(dateRange.from)} \u2013 ${fmtShort(dateRange.to)}`;
+      return `${fmtShort(dateRange.from)} – ${fmtShort(dateRange.to)}`;
     }
     return TIME_LABELS[timeFilter] || "Today";
   })();
@@ -250,10 +250,15 @@ export default function Filters({
       <div className="relative z-50 bg-gradient-to-b from-white/95 via-white/80 to-transparent pointer-events-auto pt-[env(safe-area-inset-top)] px-3 pb-4">
         {/* Header */}
         <div className="flex items-center justify-between mb-2.5 px-0.5 pt-2">
-          <h1 className="text-lg font-extrabold text-gray-900 tracking-tight">
-            Pulse
-          </h1>
-          <span className="text-xs text-gray-400 tabular-nums font-medium">
+          <div className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-[9px] bg-gradient-to-br from-violet-500 to-rose-400 flex items-center justify-center text-[13px] shadow-sm select-none">
+              {"🌙"}
+            </span>
+            <h1 className="text-lg font-extrabold text-gray-900 tracking-tight">
+              NachtKarte
+            </h1>
+          </div>
+          <span className="text-[11px] text-gray-500 tabular-nums font-semibold bg-white/95 border border-black/5 rounded-full px-3 py-1.5 shadow-sm">
             {eventCount} events
           </span>
         </div>
@@ -303,7 +308,7 @@ export default function Filters({
                   >
                     {TIME_LABELS[opt]}
                     {timeFilter === opt && timeFilter !== "custom" && (
-                      <span className="text-emerald-500 font-bold">{"\u2713"}</span>
+                      <span className="text-emerald-500 font-bold">{"✓"}</span>
                     )}
                   </button>
                 ))}
@@ -314,9 +319,9 @@ export default function Filters({
                     timeFilter === "custom" ? "text-gray-900 font-semibold" : "text-gray-500"
                   }`}
                 >
-                  {"\uD83D\uDCC5"} Choose dates
+                  {"📅"} Choose dates
                   {timeFilter === "custom" && (
-                    <span className="text-emerald-500 font-bold">{"\u2713"}</span>
+                    <span className="text-emerald-500 font-bold">{"✓"}</span>
                   )}
                 </button>
               </div>
@@ -331,14 +336,14 @@ export default function Filters({
                     disabled={!canGoPrev}
                     className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 active:bg-gray-100 disabled:text-gray-200 transition"
                   >
-                    {"\u2039"}
+                    {"‹"}
                   </button>
                   <div />
                   <button
                     onClick={nextMonth}
                     className="w-8 h-8 flex items-center justify-center rounded-full text-gray-500 active:bg-gray-100 transition"
                   >
-                    {"\u203A"}
+                    {"›"}
                   </button>
                 </div>
 
@@ -354,9 +359,9 @@ export default function Filters({
                   {selFrom ? (
                     <p className="text-[12px] text-gray-500 text-center mb-3">
                       {fmtShort(selFrom)}
-                      {selTo && selTo !== selFrom ? ` \u2013 ${fmtShort(selTo)}` : ""}
+                      {selTo && selTo !== selFrom ? ` – ${fmtShort(selTo)}` : ""}
                       {!selTo && (
-                        <span className="text-gray-400"> {"\u2014"} tap end date</span>
+                        <span className="text-gray-400"> {"—"} tap end date</span>
                       )}
                     </p>
                   ) : (
@@ -387,7 +392,7 @@ export default function Filters({
 
         {/* Category pills */}
         <div className="relative" ref={pillsContainerRef}>
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5 py-0.5">
             {Object.entries(CATEGORIES).map(([key, cat]) => {
               const isActive =
                 activeCategories.size === 0 || activeCategories.has(key);
@@ -403,12 +408,12 @@ export default function Filters({
                       if (subDropdown) { setSubDropdown(null); return; }
                       onCategoryToggle(key);
                     }}
-                    className={`whitespace-nowrap text-[13px] py-1.5 font-medium transition-all active:scale-95 border select-none ${
+                    className={`whitespace-nowrap text-[13px] py-1.5 font-semibold transition-all active:scale-95 border select-none ${
                       hasSubs && isActive ? "rounded-l-full pl-3 pr-1.5" : "rounded-full px-3"
                     } ${
                       isActive
                         ? "text-white border-transparent shadow-sm"
-                        : "bg-white/80 text-gray-400 border-gray-100"
+                        : "bg-white/95 text-gray-500 border-black/5 shadow-sm"
                     }`}
                     style={
                       isActive

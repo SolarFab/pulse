@@ -26,15 +26,22 @@ export default function ChatEventCard({ event, onClose, onMoreInfo }: Props) {
   const time = `${formatDate(event.start_time)} · ${formatTime(event.start_time)}`;
 
   return (
-    <div className="mx-2 my-1 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden animate-slide-up">
+    <div className="mx-2 my-1 bg-white rounded-2xl shadow-sm border border-black/5 overflow-hidden animate-slide-up">
       <div className="flex gap-3 p-3">
-        {event.image_url && (
+        {event.image_url ? (
           <img
             src={event.image_url}
             alt={event.title}
             className="w-16 h-16 rounded-xl object-cover flex-shrink-0"
             onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
           />
+        ) : (
+          <div
+            className="w-16 h-16 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 select-none"
+            style={{ background: cat.color + "20" }}
+          >
+            {cat.emoji}
+          </div>
         )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 mb-0.5">
