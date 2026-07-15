@@ -109,7 +109,6 @@ export default function Landing() {
     const markers: { el: HTMLElement; ev: DemoEvent }[] = [];
     let timers: ReturnType<typeof setTimeout>[] = [];
     let running = false;
-    let userBusy: ReturnType<typeof setTimeout> | null = null;
 
     function makePinEl(ev: DemoEvent) {
       const el = document.createElement("div");
@@ -266,11 +265,10 @@ export default function Landing() {
         center: OVERVIEW.center,
         zoom: OVERVIEW.zoom,
         attributionControl: { compact: true },
-        interactive: true,
-        dragRotate: false,
-        pitchWithRotate: false,
+        // Pure showcase: not touchable, so mobile scrolling is never
+        // hijacked and the scripted demo can't be interrupted.
+        interactive: false,
       });
-      map.touchZoomRotate.disableRotation();
       map.on("load", () => {
         if (disposed || !map) return;
         mapOK = true;
@@ -290,24 +288,10 @@ export default function Landing() {
     };
     replayBtn?.addEventListener("click", onReplay);
 
-    const phone = $("ld-phone");
-    const onPointerDown = () => {
-      clearTimers();
-      if (userBusy) clearTimeout(userBusy);
-      userBusy = setTimeout(() => {
-        running = false;
-        resetDemo();
-        startDemo();
-      }, 9000);
-    };
-    phone?.addEventListener("pointerdown", onPointerDown);
-
     return () => {
       disposed = true;
       clearTimers();
-      if (userBusy) clearTimeout(userBusy);
       replayBtn?.removeEventListener("click", onReplay);
-      phone?.removeEventListener("pointerdown", onPointerDown);
       if (map) map.remove();
     };
   }, []);
@@ -570,6 +554,7 @@ const LANDING_CSS = `
   background: rgba(250,249,246,0.85);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top);
 }
 .ld-nav-inner { display: flex; align-items: center; justify-content: space-between; height: 64px; }
 .ld-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; letter-spacing: -0.02em; }
@@ -636,7 +621,7 @@ const LANDING_CSS = `
   position: relative;
   display: flex; flex-direction: column;
 }
-.ld-map-area { position: relative; flex: 1; overflow: hidden; }
+.ld-map-area { position: relative; flex: 1; overflow: hidden; pointer-events: none; }
 #ld-map { position: absolute; inset: 0; }
 #ld-map .maplibregl-ctrl-attrib { font-size: 8px; opacity: 0.7; }
 .ld-map-fallback {
@@ -674,7 +659,7 @@ const LANDING_CSS = `
   border: 2.5px solid var(--pc, #999);
   transform: scale(0);
   transition: transform .35s cubic-bezier(.34,1.56,.64,1), opacity .4s ease;
-  cursor: pointer;
+  pointer-events: none;
   position: relative;
 }
 .ld-pin.in { transform: scale(1); }
