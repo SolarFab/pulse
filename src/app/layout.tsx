@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import FeedbackButton from "@/components/FeedbackButton";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -16,8 +15,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Pulse \u2014 Berlin Events",
-  description: "Discover what\u2019s happening in Berlin right now. Live event map with AI concierge.",
+  title: "Pulse — every event in Berlin, on one map",
+  description: "Pulse tracks every concert, market, kids event and pop-up in Berlin — live on an interactive map, with an AI concierge you can simply ask.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -34,7 +33,6 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className} antialiased bg-[#faf9f6] text-[#1a1a1a] overscroll-none`}>
         {children}
-        <FeedbackButton />
       </body>
     </html>
   );
