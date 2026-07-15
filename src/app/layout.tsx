@@ -16,12 +16,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Pulse \u2014 Berlin Events",
-  description: "Discover what\u2019s happening in Berlin right now. Live event map with AI concierge.",
+  title: "NachtKarte — Berlin Events",
+  description: "Discover what’s happening in Berlin right now. Live event map with AI concierge.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Pulse",
+    title: "NachtKarte",
   },
 };
 

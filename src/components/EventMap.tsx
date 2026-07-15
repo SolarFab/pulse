@@ -21,6 +21,67 @@ const SELECTED_LAYER_ID = "events-selected-layer";
 const PULSE_SOURCE_ID = "pulse-source";
 const PULSE_LAYER_ID = "pulse-layer";
 
+const PIN_SIZE = 30;
+const PIN_SIZE_SELECTED = 40;
+const PIN_SCALE = 2; // render at 2x, register with pixelRatio 2 for crisp icons
+
+/**
+ * Landing-page style pin: white disc, colored category ring, emoji inside.
+ * Drawn on a canvas so MapLibre can render it as a WebGL symbol icon
+ * (color emoji aren't available through SDF glyph fonts).
+ */
+function makePinImage(emoji: string, color: string, size: number): ImageData {
+  const s = size * PIN_SCALE;
+  const canvas = document.createElement("canvas");
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext("2d")!;
+  const r = s / 2;
+  const pad = 3.5 * PIN_SCALE; // room for ring + shadow
+
+  // soft drop shadow
+  ctx.shadowColor = "rgba(0,0,0,0.25)";
+  ctx.shadowBlur = 2.5 * PIN_SCALE;
+  ctx.shadowOffsetY = 1 * PIN_SCALE;
+
+  // white disc
+  ctx.beginPath();
+  ctx.arc(r, r, r - pad, 0, Math.PI * 2);
+  ctx.fillStyle = "#ffffff";
+  ctx.fill();
+
+  // colored ring
+  ctx.shadowColor = "transparent";
+  ctx.lineWidth = 2.5 * PIN_SCALE;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+
+  // emoji
+  ctx.font = `${Math.round(size * 0.47) * PIN_SCALE}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(emoji, r, r + 1 * PIN_SCALE);
+
+  return ctx.getImageData(0, 0, s, s);
+}
+
+function addPinImages(m: maplibregl.Map) {
+  for (const [key, cat] of Object.entries(CATEGORIES)) {
+    if (!m.hasImage(`pin-${key}`)) {
+      m.addImage(`pin-${key}`, makePinImage(cat.emoji, cat.color, PIN_SIZE), {
+        pixelRatio: PIN_SCALE,
+      });
+    }
+    if (!m.hasImage(`pin-sel-${key}`)) {
+      m.addImage(
+        `pin-sel-${key}`,
+        makePinImage(cat.emoji, cat.color, PIN_SIZE_SELECTED),
+        { pixelRatio: PIN_SCALE }
+      );
+    }
+  }
+}
+
 export default function EventMap({
   events,
   selectedEvent,
@@ -70,6 +131,8 @@ export default function EventMap({
             title: e.title,
             venue_name: e.venue_name,
             category: e.category,
+            // icon lookup key — unknown categories fall back to culture
+            pin: CATEGORIES[e.category] ? e.category : "culture",
             color: (CATEGORIES[e.category] || CATEGORIES.culture).color,
             emoji: (CATEGORIES[e.category] || CATEGORIES.culture).emoji,
             selected: isSelected ? 1 : 0,
@@ -113,6 +176,9 @@ export default function EventMap({
     );
 
     m.on("load", () => {
+      // Landing-page style emoji pins, generated per category
+      addPinImages(m);
+
       // Events source + layers
       m.addSource(SOURCE_ID, {
         type: "geojson",
@@ -121,33 +187,29 @@ export default function EventMap({
 
       m.addLayer({
         id: LAYER_ID,
-        type: "circle",
+        type: "symbol",
         source: SOURCE_ID,
         filter: ["==", ["get", "selected"], 0],
-        paint: {
-          "circle-radius": 8,
-          "circle-color": ["get", "color"],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": 0.9,
+        layout: {
+          "icon-image": ["concat", "pin-", ["get", "pin"]],
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
       });
 
       m.addLayer({
         id: SELECTED_LAYER_ID,
-        type: "circle",
+        type: "symbol",
         source: SOURCE_ID,
         filter: ["==", ["get", "selected"], 1],
-        paint: {
-          "circle-radius": 12,
-          "circle-color": ["get", "color"],
-          "circle-stroke-width": 3,
-          "circle-stroke-color": "#ffffff",
-          "circle-opacity": 1,
+        layout: {
+          "icon-image": ["concat", "pin-sel-", ["get", "pin"]],
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
         },
       });
 
-      // Count badge for pins with multiple events
+      // Count badge for pins with multiple events — top-right corner of the disc
       m.addLayer({
         id: "events-count-layer",
         type: "symbol",
@@ -155,12 +217,16 @@ export default function EventMap({
         filter: [">=", ["get", "count"], 2],
         layout: {
           "text-field": ["get", "count"],
-          "text-size": 11,
+          "text-size": 10,
           "text-font": ["Open Sans Bold"],
           "text-allow-overlap": true,
+          "text-ignore-placement": true,
+          "text-offset": [1.15, -1.15],
         },
         paint: {
-          "text-color": "#ffffff",
+          "text-color": "#1a1a1a",
+          "text-halo-color": "#ffffff",
+          "text-halo-width": 1.5,
         },
       });
 
