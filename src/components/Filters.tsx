@@ -156,7 +156,9 @@ export default function Filters({
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [subDropdown, setSubDropdown] = useState<string | null>(null);
   const [subDropdownLeft, setSubDropdownLeft] = useState(0);
+  const [moreLeft, setMoreLeft] = useState(0);
   const pillsContainerRef = useRef<HTMLDivElement>(null);
+  const timeRowRef = useRef<HTMLDivElement>(null);
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [selFrom, setSelFrom] = useState("");
@@ -258,32 +260,41 @@ export default function Filters({
       {/* No backdrop-blur here: blurring over the WebGL map canvas forces a
           recomposite on every map frame and janks panning on mobile */}
       <div className="relative z-50 bg-gradient-to-b from-white/95 via-white/80 to-transparent pointer-events-auto pt-[env(safe-area-inset-top)] px-3 pb-4">
-        {/* Time chips — like the landing mockup */}
-        <div className="flex gap-2 mb-2 pt-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5 py-0.5 items-center">
-          {TIME_CHIP_OPTIONS.map((opt) => (
-            <button
-              key={opt}
-              onClick={() => {
-                onTimeChange(opt);
-                onDateRange(null);
-                closeAll();
-              }}
-              className={timeChip(timeFilter === opt)}
-            >
-              {TIME_LABELS[opt]}
-            </button>
-          ))}
+        {/* Time chips — like the landing mockup. The dropdown is rendered
+            OUTSIDE the scroll row: overflow-x-auto would clip it vertically. */}
+        <div className="relative mb-2" ref={timeRowRef}>
+          <div className="flex gap-2 pt-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5 py-0.5 items-center">
+            {TIME_CHIP_OPTIONS.map((opt) => (
+              <button
+                key={opt}
+                onClick={() => {
+                  onTimeChange(opt);
+                  onDateRange(null);
+                  closeAll();
+                }}
+                className={timeChip(timeFilter === opt)}
+              >
+                {TIME_LABELS[opt]}
+              </button>
+            ))}
 
-          {/* "More" chip — Right Now / Next 2h / custom dates */}
-          <div className="relative shrink-0">
+            {/* "More" chip — Right Now / Next 2h / custom dates */}
             <button
-              onClick={() => {
+              onClick={(e) => {
                 if (dropdownOpen) {
                   closeAll();
-                } else {
-                  setDropdownOpen(true);
-                  setDatePickerOpen(false);
+                  return;
                 }
+                // Anchor the dropdown to this chip, clamped inside the row
+                const btnRect = e.currentTarget.getBoundingClientRect();
+                const container = timeRowRef.current;
+                if (container) {
+                  const cRect = container.getBoundingClientRect();
+                  const maxLeft = Math.max(0, cRect.width - 300);
+                  setMoreLeft(Math.max(0, Math.min(btnRect.left - cRect.left, maxLeft)));
+                }
+                setDropdownOpen(true);
+                setDatePickerOpen(false);
               }}
               className={`${timeChip(moreActive)} flex items-center gap-1.5`}
             >
@@ -298,10 +309,14 @@ export default function Filters({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </button>
+          </div>
 
-            {/* More options dropdown */}
-            {dropdownOpen && !datePickerOpen && (
-              <div className="absolute top-full left-0 mt-2 bg-white border border-gray-100 rounded-2xl py-2 min-w-[170px] shadow-lg z-50">
+          {/* More options dropdown — sibling of the scroll row */}
+          {dropdownOpen && !datePickerOpen && (
+            <div
+              className="absolute top-full mt-1.5 bg-white border border-gray-100 rounded-2xl py-2 min-w-[170px] shadow-lg z-[101] pointer-events-auto"
+              style={{ left: `${moreLeft}px` }}
+            >
                 {TIME_MORE_OPTIONS.map((opt) => (
                   <button
                     key={opt}
@@ -337,9 +352,12 @@ export default function Filters({
               </div>
             )}
 
-            {/* Date picker */}
+            {/* Date picker — sibling of the scroll row */}
             {dropdownOpen && datePickerOpen && (
-              <div className="absolute top-full left-0 mt-2 bg-white border border-gray-100 rounded-2xl p-4 w-[300px] shadow-lg z-50">
+              <div
+                className="absolute top-full mt-1.5 bg-white border border-gray-100 rounded-2xl p-4 w-[300px] shadow-lg z-[101] pointer-events-auto"
+                style={{ left: `${moreLeft}px` }}
+              >
                 <div className="flex items-center justify-between mb-1">
                   <button
                     onClick={prevMonth}
@@ -397,7 +415,6 @@ export default function Filters({
                 </div>
               </div>
             )}
-          </div>
         </div>
 
         {/* Category pills — neutral white until a category is selected */}
