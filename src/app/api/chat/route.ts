@@ -1,17 +1,19 @@
 import { NextRequest } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase/admin";
+import { createClient as createAuthClient } from "@/lib/supabase/server";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const SYSTEM_PROMPT = `You are Pulse, a warm and opinionated Berlin event concierge. You know the city inside out — the underground spots, the tourist traps to avoid, and where the real magic happens on any given night.
 
 RULES:
+- ONLY recommend events that appear in the EVENTS DATABASE below. Every recommendation MUST be one of those entries, cited with its exact [EVENT_ID]. NEVER invent, remember or assume events, venues, dates, times or prices that are not in the list — not even famous ones you think you know.
+- If the database has no good match for the request, say so honestly and suggest the closest alternative FROM THE LIST, or propose a different time window or category. Do NOT fall back to general Berlin knowledge for recommendations.
 - Recommend 3-5 events per response. Show VARIETY — spread across different venues, don't just pick from one place.
-- Be specific and opinionated — explain WHY each pick is worth it.
+- Be specific and opinionated — explain WHY each pick is worth it, based on the information in the entry.
 - Keep it concise: 2-3 sentences per recommendation max.
-- Add insider tips when relevant ("arrive before 22:00 to skip the line", "grab a Spezi at the Späti across the street first").
-- If nothing matches perfectly, suggest the closest alternative.
+- Insider tips are welcome but must be generic (timing, transport, neighborhood vibe) — never invented facts about the specific event or venue.
 - Respond in the same language the user writes in (German or English).
 - IMPORTANT: Prioritize smaller/unique venues alongside well-known ones. A hidden gem at a neighborhood bar is more interesting than the obvious pick.
 - IMPORTANT: Each event in the database has an ID in brackets like [abc123]. You MUST include this ID when recommending events.
@@ -180,7 +182,7 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
     }
   }
 
-  // Category-based query
+  // Category-based query — keep the context lean: 60 candidates max
   let query = supabase
     .from("events_with_coords")
     .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
@@ -193,7 +195,7 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
     query = query.in("category", matchedCategories);
   }
 
-  query = query.order("start_time", { ascending: true }).limit(100);
+  query = query.order("start_time", { ascending: true }).limit(60);
 
   const { data } = await query;
 
@@ -229,7 +231,9 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
     results = withDist.map((w) => w.event);
   }
 
-  return results.slice(0, 100)
+  // 40 events × ~150-char descriptions keeps prompt cost low without
+  // hurting recommendation quality (the model only ever cites 3-5).
+  return results.slice(0, 40)
     .map((e) => {
       const time = new Date(e.start_time).toLocaleString("de-DE", {
         timeZone: "Europe/Berlin",
@@ -248,8 +252,8 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
       const upcomingTag = (e as { _upcoming?: boolean })._upcoming ? "UPCOMING (outside requested time window): " : "";
       // Truncate descriptions — full text multiplies prompt tokens without
       // improving recommendations
-      const desc = (e.description || "No description").slice(0, 200);
-      return `${upcomingTag}[${e.id}] "${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"})${nearbyTag} | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"}${distStr} | ${desc}`;
+      const desc = (e.description || "No description").slice(0, 150);
+      return `[${e.id}] ${upcomingTag}"${e.title}" @ ${e.venue_name} (${e.neighborhood || "Berlin"})${nearbyTag} | ${time}${endStr} | ${e.category}${e.subcategory ? "/" + e.subcategory : ""} | ${e.price || "Price unknown"}${distStr} | ${desc}`;
     })
     .join("\n");
 }
@@ -267,6 +271,13 @@ function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): num
 const rateLimit = new Map<string, { count: number; reset: number }>();
 
 export async function POST(req: NextRequest) {
+  // The concierge requires a signed-in user — every request costs API money.
+  const authClient = await createAuthClient();
+  const { data: { user } } = await authClient.auth.getUser();
+  if (!user) {
+    return new Response("Sign in to use the concierge", { status: 401 });
+  }
+
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const now = Date.now();
   const entry = rateLimit.get(ip);
@@ -316,7 +327,7 @@ export async function POST(req: NextRequest) {
 
   const stream = anthropic.messages.stream({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
+    max_tokens: 700,
     system: systemPrompt,
     messages: messages.map((m: { role: string; content: string }) => ({
       role: m.role as "user" | "assistant",
