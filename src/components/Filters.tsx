@@ -20,14 +20,10 @@ interface Props {
   onDateRange: (range: DateRange | null) => void;
 }
 
-const TIME_OPTIONS: TimeFilter[] = [
-  "now",
-  "2hours",
-  "tonight",
-  "today",
-  "tomorrow",
-  "weekend",
-];
+// Main time options render as chips (like the landing mockup);
+// the rest live in the "more" dropdown.
+const TIME_CHIP_OPTIONS: TimeFilter[] = ["today", "tonight", "tomorrow", "weekend"];
+const TIME_MORE_OPTIONS: TimeFilter[] = ["now", "2hours"];
 
 const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
@@ -166,14 +162,21 @@ export default function Filters({
   const [selFrom, setSelFrom] = useState("");
   const [selTo, setSelTo] = useState("");
 
-  const activeLabel = (() => {
+  // Is the active time filter one of the "more" options (dropdown-only)?
+  const moreActive =
+    timeFilter === "now" || timeFilter === "2hours" || timeFilter === "custom";
+
+  const moreLabel = (() => {
     if (timeFilter === "custom" && dateRange) {
       if (dateRange.from === dateRange.to) {
         return fmtShort(dateRange.from);
       }
       return `${fmtShort(dateRange.from)} – ${fmtShort(dateRange.to)}`;
     }
-    return TIME_LABELS[timeFilter] || "Today";
+    if (timeFilter === "now" || timeFilter === "2hours") {
+      return TIME_LABELS[timeFilter];
+    }
+    return "More";
   })();
 
   function closeAll() {
@@ -235,6 +238,13 @@ export default function Filters({
     calYear > now.getFullYear() ||
     (calYear === now.getFullYear() && calMonth > now.getMonth());
 
+  const timeChip = (active: boolean) =>
+    `shrink-0 whitespace-nowrap text-[13px] px-4 py-2 rounded-full font-semibold border transition-all active:scale-95 select-none shadow-sm ${
+      active
+        ? "bg-gray-900 text-white border-gray-900"
+        : "bg-white/95 text-gray-600 border-black/5"
+    }`;
+
   return (
     <div className="absolute top-0 left-0 right-0 z-40 pointer-events-none">
       {/* Backdrop — closes dropdown on tap outside */}
@@ -248,23 +258,23 @@ export default function Filters({
       {/* No backdrop-blur here: blurring over the WebGL map canvas forces a
           recomposite on every map frame and janks panning on mobile */}
       <div className="relative z-50 bg-gradient-to-b from-white/95 via-white/80 to-transparent pointer-events-auto pt-[env(safe-area-inset-top)] px-3 pb-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-2.5 px-0.5 pt-2">
-          <div className="flex items-center gap-2">
-            <span className="w-7 h-7 rounded-[9px] bg-gradient-to-br from-violet-500 to-rose-400 flex items-center justify-center text-[13px] shadow-sm select-none">
-              {"🌙"}
-            </span>
-            <h1 className="text-lg font-extrabold text-gray-900 tracking-tight">
-              NachtKarte
-            </h1>
-          </div>
-          <span className="text-[11px] text-gray-500 tabular-nums font-semibold bg-white/95 border border-black/5 rounded-full px-3 py-1.5 shadow-sm">
-            {eventCount} events
-          </span>
-        </div>
+        {/* Time chips — like the landing mockup */}
+        <div className="flex gap-2 mb-2 pt-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5 py-0.5 items-center">
+          {TIME_CHIP_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              onClick={() => {
+                onTimeChange(opt);
+                onDateRange(null);
+                closeAll();
+              }}
+              className={timeChip(timeFilter === opt)}
+            >
+              {TIME_LABELS[opt]}
+            </button>
+          ))}
 
-        {/* Time selector */}
-        <div className="flex gap-2 mb-2.5">
+          {/* "More" chip — Right Now / Next 2h / custom dates */}
           <div className="relative shrink-0">
             <button
               onClick={() => {
@@ -275,9 +285,9 @@ export default function Filters({
                   setDatePickerOpen(false);
                 }
               }}
-              className="flex items-center gap-1.5 text-[13px] px-4 py-2.5 rounded-full font-semibold bg-gray-900 text-white shadow-sm active:scale-95 transition-transform"
+              className={`${timeChip(moreActive)} flex items-center gap-1.5`}
             >
-              {activeLabel}
+              {moreLabel}
               <svg
                 className={`w-3 h-3 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
                 fill="none"
@@ -289,10 +299,10 @@ export default function Filters({
               </svg>
             </button>
 
-            {/* Time options dropdown */}
+            {/* More options dropdown */}
             {dropdownOpen && !datePickerOpen && (
               <div className="absolute top-full left-0 mt-2 bg-white border border-gray-100 rounded-2xl py-2 min-w-[170px] shadow-lg z-50">
-                {TIME_OPTIONS.map((opt) => (
+                {TIME_MORE_OPTIONS.map((opt) => (
                   <button
                     key={opt}
                     onClick={() => {
@@ -301,13 +311,13 @@ export default function Filters({
                       closeAll();
                     }}
                     className={`w-full text-left px-4 py-2.5 text-[13px] flex items-center justify-between active:bg-gray-50 transition ${
-                      timeFilter === opt && timeFilter !== "custom"
+                      timeFilter === opt
                         ? "text-gray-900 font-semibold"
                         : "text-gray-500"
                     }`}
                   >
                     {TIME_LABELS[opt]}
-                    {timeFilter === opt && timeFilter !== "custom" && (
+                    {timeFilter === opt && (
                       <span className="text-emerald-500 font-bold">{"✓"}</span>
                     )}
                   </button>
@@ -390,14 +400,14 @@ export default function Filters({
           </div>
         </div>
 
-        {/* Category pills */}
+        {/* Category pills — neutral white until a category is selected */}
         <div className="relative" ref={pillsContainerRef}>
           <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-0.5 px-0.5 py-0.5">
             {Object.entries(CATEGORIES).map(([key, cat]) => {
-              const isActive =
-                activeCategories.size === 0 || activeCategories.has(key);
+              const isSelected =
+                activeCategories.size > 0 && activeCategories.has(key);
               const hasSubs = !!SUBCATEGORIES[key];
-              const showingSub = activeSubtag && activeCategories.has(key) && activeCategories.size === 1;
+              const showingSub = activeSubtag && isSelected && activeCategories.size === 1;
               const subLabel = showingSub
                 ? SUBCATEGORIES[key]?.find((s) => s.tag === activeSubtag)?.label
                 : null;
@@ -408,22 +418,22 @@ export default function Filters({
                       if (subDropdown) { setSubDropdown(null); return; }
                       onCategoryToggle(key);
                     }}
-                    className={`whitespace-nowrap text-[13px] py-1.5 font-semibold transition-all active:scale-95 border select-none ${
-                      hasSubs && isActive ? "rounded-l-full pl-3 pr-1.5" : "rounded-full px-3"
+                    className={`whitespace-nowrap text-[13px] py-1.5 font-semibold transition-all active:scale-95 border select-none shadow-sm ${
+                      hasSubs && isSelected ? "rounded-l-full pl-3 pr-1.5" : "rounded-full px-3"
                     } ${
-                      isActive
-                        ? "text-white border-transparent shadow-sm"
-                        : "bg-white/95 text-gray-500 border-black/5 shadow-sm"
+                      isSelected
+                        ? "text-white border-transparent"
+                        : "bg-white/95 text-gray-600 border-black/5"
                     }`}
                     style={
-                      isActive
+                      isSelected
                         ? { background: cat.color, borderColor: cat.color }
                         : undefined
                     }
                   >
                     {cat.emoji} {subLabel || cat.label}
                   </button>
-                  {hasSubs && isActive && (
+                  {hasSubs && isSelected && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -479,6 +489,13 @@ export default function Filters({
               })}
             </div>
           )}
+        </div>
+
+        {/* Centered event count pill — like the landing mockup */}
+        <div className="flex justify-center mt-2.5">
+          <span className="bg-white/95 border border-black/5 rounded-full px-3.5 py-1.5 text-[11px] font-semibold text-gray-500 shadow-sm tabular-nums">
+            {eventCount} events
+          </span>
         </div>
       </div>
     </div>
