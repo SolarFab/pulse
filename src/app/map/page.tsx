@@ -19,6 +19,43 @@ const EventMap = dynamic(() => import("@/components/EventMap"), { ssr: false });
 
 type View = "map" | "list" | "profile";
 
+/** Friendly in-place gate shown to logged-out users on account features. */
+function AuthPrompt({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center text-center px-8 gap-2 bg-[#faf9f6]">
+      <svg width="44" height="44" viewBox="0 0 64 64" aria-hidden="true" className="mb-1">
+        <defs>
+          <linearGradient id="pulse-gate-g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#8b5cf6" />
+            <stop offset="1" stopColor="#e85d75" />
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#pulse-gate-g)" />
+        <circle cx="32" cy="32" r="6.5" fill="#fff" />
+        <circle cx="32" cy="32" r="15" fill="none" stroke="#fff" strokeWidth="3.5" opacity="0.55" />
+        <circle cx="32" cy="32" r="23" fill="none" stroke="#fff" strokeWidth="3.5" opacity="0.22" />
+      </svg>
+      <h2 className="text-[17px] font-bold text-gray-900">{title}</h2>
+      <p className="text-[13px] text-gray-500 max-w-[280px] leading-relaxed">{text}</p>
+      <div className="flex gap-2 mt-4">
+        <a
+          href="/login"
+          className="px-6 py-2.5 rounded-full bg-gray-900 text-white text-[13px] font-semibold active:scale-95 transition-transform"
+        >
+          Log in
+        </a>
+        <a
+          href="/signup"
+          className="px-6 py-2.5 rounded-full bg-white border border-gray-200 text-gray-900 text-[13px] font-semibold active:scale-95 transition-transform"
+        >
+          Register
+        </a>
+      </div>
+      <p className="text-[11px] text-gray-400 mt-2">Free, takes 30 seconds.</p>
+    </div>
+  );
+}
+
 function SwipeDownSheet({ onClose, className, children }: { onClose: () => void; className?: string; children: React.ReactNode }) {
   const sheetRef = useRef<HTMLDivElement>(null);
   const dragStartY = useRef(0);
@@ -378,9 +415,9 @@ export default function Home() {
                   <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
               </button>
-              {/* Ask AI — bottom right. Concierge requires an account. */}
+              {/* Ask AI — bottom right. Logged-out users see a register prompt inside the sheet. */}
               <button
-                onClick={() => (userId ? setChatOpen(true) : router.push("/login"))}
+                onClick={() => setChatOpen(true)}
                 className="absolute bottom-6 right-4 z-50 w-14 h-14 rounded-full bg-gray-900 text-white shadow-lg flex items-center justify-center active:scale-95 transition-transform"
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -420,15 +457,22 @@ export default function Home() {
                 </button>
               </div>
               <div className="flex-1 min-h-0">
-                <ChatPanel
-                  events={events}
-                  onHighlightEvent={setHighlightedEvent}
-                  onSelectEvent={handleChatSelectEvent}
-                  onMentionedEventsChange={setChatMentionedEvents}
-                  homeLocation={homeLocation}
-                  currentLocation={currentLocation}
-                  onRequestLocation={requestLocation}
-                />
+                {userId ? (
+                  <ChatPanel
+                    events={events}
+                    onHighlightEvent={setHighlightedEvent}
+                    onSelectEvent={handleChatSelectEvent}
+                    onMentionedEventsChange={setChatMentionedEvents}
+                    homeLocation={homeLocation}
+                    currentLocation={currentLocation}
+                    onRequestLocation={requestLocation}
+                  />
+                ) : (
+                  <AuthPrompt
+                    title="Meet your concierge"
+                    text="Please register to ask Pulse for personal recommendations — “best jazz tonight?”, “free stuff with kids tomorrow?” and more."
+                  />
+                )}
               </div>
             </SwipeDownSheet>
           )}
@@ -547,12 +591,21 @@ export default function Home() {
         </div>
 
 
-        {/* Profile view */}
+        {/* Profile view — logged-out users see a register prompt */}
         {view === "profile" && (
-          <ProfilePage
-            onBack={() => setView("map")}
-            onLogout={handleLogout}
-          />
+          userId ? (
+            <ProfilePage
+              onBack={() => setView("map")}
+              onLogout={handleLogout}
+            />
+          ) : (
+            <div className="flex-1 min-h-0">
+              <AuthPrompt
+                title="Your Pulse profile"
+                text="Please register to bookmark events and build a taste profile that learns what you like — your map slowly becomes yours."
+              />
+            </div>
+          )
         )}
 
       </div>
@@ -599,7 +652,7 @@ export default function Home() {
           <span className="text-[10px] font-semibold">Events</span>
         </button>
         <button
-          onClick={() => (userId ? setView("profile") : router.push("/login"))}
+          onClick={() => setView("profile")}
           className={`flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition ${
             view === "profile" ? "text-gray-900 bg-gray-100" : "text-gray-400"
           }`}
