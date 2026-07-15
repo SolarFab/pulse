@@ -268,7 +268,8 @@ export default function Filters({
               <button
                 key={opt}
                 onClick={() => {
-                  onTimeChange(opt);
+                  // Tapping the active chip un-selects it (falls back to Today)
+                  onTimeChange(timeFilter === opt ? "today" : opt);
                   onDateRange(null);
                   closeAll();
                 }}
