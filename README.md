@@ -6,7 +6,7 @@ The data pipeline (scrapers, categorization, geocoding) lives in [`nachtkarte-pi
 
 ## Features
 
-- **Interactive map** — MapLibre GL, dark theme, emoji pins by category, clustering
+- **Interactive map** — MapLibre GL, emoji pins (white disc + category ring) generated on canvas, clustering
 - **AI chat concierge** — ask "best jazz tonight?" in natural language; recommended events get highlighted on the map (Claude Haiku)
 - **Flyer scanner** — photograph a street flyer, Claude Vision extracts title, venue, date, and price into a structured event
 - **Filters** — time (Right Now / Tonight / Tomorrow / Weekend) × 9 categories
