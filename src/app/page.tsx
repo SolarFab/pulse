@@ -303,7 +303,21 @@ export default function Home() {
   }
 
   return (
-    <main className="relative w-screen h-dvh overflow-hidden bg-[#faf9f6] flex flex-col">
+    <div className="w-screen h-dvh bg-[#f2f0ea] md:flex md:items-center md:justify-center">
+      {/* Desktop-only brand outside the phone frame */}
+      <div className="hidden md:flex items-center gap-2 fixed top-5 left-6 z-10 select-none">
+        <span className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-violet-500 to-rose-400 flex items-center justify-center text-[15px] shadow-sm">
+          {"🌙"}
+        </span>
+        <span className="text-lg font-extrabold tracking-tight text-gray-900">
+          NachtKarte
+        </span>
+      </div>
+
+      {/* On mobile: true fullscreen app. On md+: centered phone-style frame.
+          transform-gpu creates a containing block so fixed-position overlays
+          anchor to the frame instead of the whole viewport. */}
+      <main className="relative w-screen h-dvh overflow-hidden bg-[#faf9f6] flex flex-col md:w-[420px] md:h-[min(92dvh,880px)] md:rounded-[2.25rem] md:border md:border-black/10 md:shadow-[0_30px_80px_-20px_rgba(26,26,26,0.4)] md:transform-gpu">
       <div className="flex-1 relative flex flex-col min-h-0">
         {/* Map area */}
         <div
@@ -459,7 +473,7 @@ export default function Home() {
                           </h3>
                           <p className="text-xs text-gray-500">
                             {new Date(event.start_time).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })}
-                            {" \u00B7 "}
+                            {" · "}
                             {formatEventTime(event)}
                           </p>
                           {event.price && (
@@ -482,7 +496,7 @@ export default function Home() {
                   onClick={handleCloseEvent}
                   className="text-[13px] font-semibold text-gray-600 active:text-gray-900 transition flex items-center gap-1"
                 >
-                  <span className="text-lg leading-none">{"\u2039"}</span> Back to chat
+                  <span className="text-lg leading-none">{"‹"}</span> Back to chat
                 </button>
               </div>
               <EventDetail
@@ -588,6 +602,7 @@ export default function Home() {
           <span className="text-[10px] font-semibold">Profile</span>
         </button>
       </nav>
-    </main>
+      </main>
+    </div>
   );
 }
