@@ -561,7 +561,7 @@ const LANDING_CSS = `
   -webkit-font-smoothing: antialiased;
   scroll-behavior: smooth;
 }
-.ld a { color: inherit; text-decoration: none; }
+.ld a { text-decoration: none; }
 .ld h1, .ld h2, .ld p { margin: 0; }
 .ld-wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 
@@ -586,6 +586,9 @@ const LANDING_CSS = `
 .ld-ghost { background: transparent; color: var(--ink); border: 1.5px solid rgba(0,0,0,0.14); }
 .ld-ghost:hover { border-color: rgba(0,0,0,0.3); box-shadow: none; }
 .ld-inv { background: #fff; color: var(--ink); }
+/* Anchor buttons must not inherit surrounding text color */
+.ld a.ld-btn { color: #fff; }
+.ld a.ld-ghost, .ld a.ld-inv { color: var(--ink); }
 @media (max-width: 720px) { .ld-nav-links { display: none; } }
 
 .ld-hero { padding: 72px 0 40px; display: grid; grid-template-columns: 1fr 400px; gap: 48px; align-items: center; }
