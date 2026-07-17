@@ -1,8 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+const ALLOWED_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8 MB
+
+// Per-instance limiter (best-effort on serverless): 10 scans per user per hour
+const scanLimit = new Map<string, { count: number; reset: number }>();
+function rateLimited(userId: string): boolean {
+  const now = Date.now();
+  const entry = scanLimit.get(userId);
+  if (entry && now < entry.reset) {
+    entry.count++;
+    return entry.count > 10;
+  }
+  scanLimit.set(userId, { count: 1, reset: now + 60 * 60 * 1000 });
+  return false;
+}
+
+// Scanning uploads cost Anthropic credits and saving writes to the shared
+// map — both require a signed-in user.
+async function requireUser() {
+  const client = await createClient();
+  const { data: { user } } = await client.auth.getUser();
+  return user;
+}
 
 const EXTRACTION_PROMPT = `You are an expert at reading event flyers, posters, and promotional materials. Extract event information from this image.
 
@@ -31,11 +56,25 @@ IMPORTANT:
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await requireUser();
+    if (!user) {
+      return NextResponse.json({ error: "Sign in to scan flyers" }, { status: 401 });
+    }
+    if (rateLimited(user.id)) {
+      return NextResponse.json({ error: "Too many scans — try again later" }, { status: 429 });
+    }
+
     const formData = await req.formData();
     const file = formData.get("image") as File | null;
 
     if (!file) {
       return NextResponse.json({ error: "No image provided" }, { status: 400 });
+    }
+    if (!ALLOWED_MEDIA_TYPES.has(file.type)) {
+      return NextResponse.json({ error: "Unsupported image type" }, { status: 415 });
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      return NextResponse.json({ error: "Image too large (max 8 MB)" }, { status: 413 });
     }
 
     // Convert to base64
@@ -80,6 +119,14 @@ export async function POST(req: NextRequest) {
 // Save a confirmed scanned event to the database
 export async function PUT(req: NextRequest) {
   try {
+    const user = await requireUser();
+    if (!user) {
+      return NextResponse.json({ error: "Sign in to submit events" }, { status: 401 });
+    }
+    if (rateLimited(user.id)) {
+      return NextResponse.json({ error: "Too many submissions — try again later" }, { status: 429 });
+    }
+
     const body = await req.json();
     const { title, venue_name, address, neighborhood, start_time, end_time, category, subcategory, description, price, tags } = body;
 
@@ -133,7 +180,10 @@ export async function PUT(req: NextRequest) {
         price: price || null,
         tags: tags || null,
         source: "community-scan",
-        status: "active",
+        // User submissions go through the moderation queue — never straight
+        // onto everyone's map
+        status: "pending",
+        submitted_by: user.id,
         fingerprint,
       })
       .select("id")

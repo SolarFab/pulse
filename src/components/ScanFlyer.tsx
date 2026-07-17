@@ -462,7 +462,7 @@ export default function ScanFlyer({ onClose, onSaved }: Props) {
               disabled={step === "saving"}
               className="w-full py-3 rounded-xl bg-gray-900 text-white font-medium text-[15px] disabled:opacity-50 transition active:bg-gray-700"
             >
-              {step === "saving" ? "Saving..." : "Add to map"}
+              {step === "saving" ? "Submitting..." : "Submit event"}
             </button>
 
             <div className="h-4" />
@@ -475,16 +475,16 @@ export default function ScanFlyer({ onClose, onSaved }: Props) {
   // Done step
   return (
     <div className="flex flex-col h-full bg-[#faf9f6]">
-      {header("Added!", false)}
+      {header("Submitted!", false)}
       <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
         <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-5">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
         </div>
-        <h3 className="text-lg font-bold text-gray-900 mb-2">Event added to the map!</h3>
+        <h3 className="text-lg font-bold text-gray-900 mb-2">Event submitted for review!</h3>
         <p className="text-[13px] text-gray-500 leading-relaxed max-w-[280px]">
-          Your scanned event is now live. Thanks for adding to Berlin's event scene!
+          It&apos;ll appear on the map once approved. Thanks for adding to Berlin&apos;s event scene!
         </p>
         <button
           onClick={onClose}

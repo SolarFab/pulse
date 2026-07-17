@@ -12,11 +12,17 @@ export const dynamic = "force-dynamic";
  *   to       - end date (YYYY-MM-DD), defaults to from + 7 days
  *   limit    - max results (default 20, max 50)
  */
+// User input lands inside PostgREST .or() filter strings — strip the
+// characters that have meaning there (clause separators, wildcards, quotes)
+function sanitizeFilterInput(s: string): string {
+  return s.replace(/[,()%_'"\\]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
-  const q = params.get("q")?.toLowerCase();
+  const q = sanitizeFilterInput(params.get("q")?.toLowerCase() || "") || undefined;
   const category = params.get("category");
-  const neighborhood = params.get("neighborhood");
+  const neighborhood = sanitizeFilterInput(params.get("neighborhood") || "") || undefined;
   const fromDate = params.get("from");
   const toDate = params.get("to");
   const limit = Math.min(parseInt(params.get("limit") || "20"), 50);
@@ -37,6 +43,8 @@ export async function GET(req: NextRequest) {
   let query = supabase
     .from("events_with_coords")
     .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,lat,lng")
+    .eq("status", "active")
+    .eq("is_active", true)
     .gte("start_time", `${startFilter}T00:00:00`)
     .lte("start_time", `${endFilter}T23:59:59`);
 

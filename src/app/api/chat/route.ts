@@ -132,7 +132,9 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let textResults: any[] = [];
   if (textQuery.length > 2) {
-    const escapedQ = textQuery.replace(/[%_]/g, "");
+    // Strip PostgREST filter metacharacters — this string is interpolated
+    // into .or() clauses
+    const escapedQ = textQuery.replace(/[,()%_'"\\]/g, "");
     const textSearchQuery = supabase
       .from("events_with_coords")
       .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
@@ -169,7 +171,7 @@ async function fetchRelevantEvents(userMessage: string, homeLocation: { lat: num
   const significantWords = words.filter((w) => w.length > 3);
   if (significantWords.length > 1 && textResults.length === 0) {
     for (const word of significantWords) {
-      const escapedW = word.replace(/[%_]/g, "");
+      const escapedW = word.replace(/[,()%_'"\\]/g, "");
       const { data: wData } = await supabase
         .from("events_with_coords")
         .select("id,title,venue_name,neighborhood,address,start_time,end_time,category,subcategory,description,price,tags,source,lat,lng")
