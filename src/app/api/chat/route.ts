@@ -1,17 +1,19 @@
 import { NextRequest } from "next/server";
 import { streamText, stepCountIs } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { buildTools, type ToolLog } from "@/lib/ai/tools";
 import { getTaxonomy } from "@/lib/ai/taxonomy";
 
 export const maxDuration = 60;
 
-// Model behind the gateway config — never hardcoded at call sites (AGENTS.md rule 3).
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "claude-haiku-4-5-20251001";
-// Same key chain as the previous concierge: dedicated key first, generic fallback.
-const anthropic = createAnthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY_CONCIERGE ?? process.env.ANTHROPIC_API_KEY,
+// ONE gateway for every model call in Pulse (AGENTS.md rule 3): chat + embeddings
+// both ride OpenRouter, and the model is an env flip — the stage-2 winner ships
+// by changing CHAT_MODEL, no code.
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "anthropic/claude-haiku-4.5";
+const gateway = createOpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
 });
 
 type LatLng = { lat: number; lng: number } | null;
@@ -110,7 +112,7 @@ export async function POST(req: NextRequest) {
   const t0 = Date.now();
 
   const result = streamText({
-    model: anthropic(CHAT_MODEL),
+    model: gateway.chat(CHAT_MODEL),
     system: systemPrompt(homeLocation ?? null, currentLocation ?? null),
     messages: messages.map((m: { role: string; content: string }) => ({
       role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
