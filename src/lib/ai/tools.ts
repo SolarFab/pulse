@@ -59,6 +59,17 @@ export function buildTools(opts: {
       inputSchema: searchSchema,
       execute: async (args) => {
         const t0 = Date.now();
+        // Deterministic date guards — prompts ask nicely, code enforces:
+        // never search the past (stale rows mislead the model into "nothing today"),
+        // and a window that ends before it starts falls back to defaults.
+        const graceMs = 6 * 3600_000; // "jetzt" queries may include just-started events
+        const floor = Date.now() - graceMs;
+        let dateFrom = args.date_from;
+        let dateTo = args.date_to;
+        if (dateFrom && Date.parse(dateFrom) < floor) dateFrom = new Date(floor).toISOString();
+        if (dateTo && dateFrom && Date.parse(dateTo) <= Date.parse(dateFrom)) dateTo = undefined;
+        if (dateTo && Date.parse(dateTo) < floor) dateTo = undefined;
+
         let qvec: string | null = null;
         let degraded = false;
         if (args.query) {
@@ -69,8 +80,8 @@ export function buildTools(opts: {
           query_embedding: qvec,
           p_category: args.category ?? null,
           p_subcategory: args.subcategory ?? null,
-          ...(args.date_from ? { p_date_from: args.date_from } : {}),
-          ...(args.date_to ? { p_date_to: args.date_to } : {}),
+          ...(dateFrom ? { p_date_from: dateFrom } : {}),
+          ...(dateTo ? { p_date_to: dateTo } : {}),
           p_neighborhood: args.neighborhood ?? null,
           p_venue: args.venue ?? null,
           p_family: args.family_friendly ?? false,
