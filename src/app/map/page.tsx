@@ -146,6 +146,12 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<Record<string, BookmarkStatus>>({});
   const [venueEvents, setVenueEvents] = useState<Event[]>([]);
+  // Pins group by proximity (~11m) — one point can hold SEVERAL venues (RAW-Gelände:
+  // Crack Bellmer + Weißer Hase + …). The sheet must never claim they're one venue.
+  const venueSheetNames = Array.from(
+    new Set(venueEvents.map((ev) => ev.venue_name).filter(Boolean))
+  );
+  const multiVenueSheet = venueSheetNames.length > 1;
   const [userGenres, setUserGenres] = useState<string[]>([]);
   const [userSubcategories, setUserSubcategories] = useState<Record<string, string[]>>({});
   const [homeLocation, setHomeLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -508,10 +514,12 @@ export default function Home() {
                 </div>
                 <div className="px-4 pb-2">
                   <h2 className="text-sm font-bold text-gray-900 mb-0.5">
-                    {venueEvents[0].venue_name}
+                    {multiVenueSheet
+                      ? `${venueSheetNames.length} venues at this spot`
+                      : venueEvents[0].venue_name}
                   </h2>
                   <p className="text-xs text-gray-400 mb-3">
-                    {venueEvents.length} events at this venue
+                    {venueEvents.length} events{multiVenueSheet ? "" : " at this venue"}
                   </p>
                 </div>
                 <div className="px-3 pb-5 space-y-2">
@@ -535,6 +543,11 @@ export default function Home() {
                           <h3 className="text-sm font-semibold text-gray-900 truncate">
                             {event.title}
                           </h3>
+                          {multiVenueSheet && event.venue_name && (
+                            <p className="text-xs font-medium text-gray-600 truncate">
+                              @ {event.venue_name}
+                            </p>
+                          )}
                           <p className="text-xs text-gray-500">
                             {new Date(event.start_time).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })}
                             {" · "}
