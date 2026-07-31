@@ -19,8 +19,9 @@ const EventMap = dynamic(() => import("@/components/EventMap"), { ssr: false });
 
 type View = "map" | "list" | "profile";
 
-/** Friendly in-place gate shown to logged-out users on account features. */
-function AuthPrompt({ title, text }: { title: string; text: string }) {
+/** Friendly in-place gate shown to logged-out users on account features.
+ *  `next` brings the user straight back here after login (no landing-page detour). */
+function AuthPrompt({ title, text, next = "/map" }: { title: string; text: string; next?: string }) {
   return (
     <div className="w-full h-full flex flex-col items-center justify-center text-center px-8 gap-2 bg-[#faf9f6]">
       <svg width="44" height="44" viewBox="0 0 64 64" aria-hidden="true" className="mb-1">
@@ -39,13 +40,13 @@ function AuthPrompt({ title, text }: { title: string; text: string }) {
       <p className="text-[13px] text-gray-500 max-w-[280px] leading-relaxed">{text}</p>
       <div className="flex gap-2 mt-4">
         <a
-          href="/login"
+          href={`/login?next=${encodeURIComponent(next)}`}
           className="px-6 py-2.5 rounded-full bg-gray-900 text-white text-[13px] font-semibold active:scale-95 transition-transform"
         >
           Log in
         </a>
         <a
-          href="/signup"
+          href={`/signup?next=${encodeURIComponent(next)}`}
           className="px-6 py-2.5 rounded-full bg-white border border-gray-200 text-gray-900 text-[13px] font-semibold active:scale-95 transition-transform"
         >
           Register
@@ -129,6 +130,15 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View>("map");
   const [chatOpen, setChatOpen] = useState(false);
+
+  // Reopen the chat after a login round-trip (/login?next=/map?chat=1).
+  // window.location instead of useSearchParams: no Suspense boundary needed.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("chat") === "1") {
+      setChatOpen(true);
+      window.history.replaceState(null, "", "/map"); // don't re-trigger on refresh
+    }
+  }, []);
   const [createOpen, setCreateOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [chatMentionedEvents, setChatMentionedEvents] = useState<Event[]>([]);
@@ -471,6 +481,7 @@ export default function Home() {
                   <AuthPrompt
                     title="Meet your concierge"
                     text="Please register to ask Pulse for personal recommendations — “best jazz tonight?”, “free stuff with kids tomorrow?” and more."
+                    next="/map?chat=1"
                   />
                 )}
               </div>

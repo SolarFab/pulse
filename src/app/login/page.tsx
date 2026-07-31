@@ -15,6 +15,11 @@ function LoginForm() {
 
   const authError = searchParams.get("error");
 
+  // Where to land after login. Only same-origin paths ("/..." but not "//...")
+  // are honored — anything else falls back to "/" (open-redirect guard).
+  const rawNext = searchParams.get("next") ?? "/";
+  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/";
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -28,8 +33,10 @@ function LoginForm() {
     if (error) {
       setError(error.message);
     } else {
-      router.push("/");
-      router.refresh();
+      // Hard navigation (not router.push): guarantees the auth cookies are on
+      // the request before the server renders — fixes the "logged in but sent
+      // back / asked to log in again" race.
+      window.location.assign(next);
     }
   }
 
@@ -38,7 +45,7 @@ function LoginForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
     if (error) setError(error.message);

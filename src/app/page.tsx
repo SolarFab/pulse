@@ -518,7 +518,11 @@ export default function Landing() {
           <span className="ld-foot-brand">
             <PulseLogo size={20} gid="plg-foot" /> Pulse
           </span>
-          <span>© 2026 Pulse · Made in Berlin</span>
+          <span style={{ display: "inline-flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+            <a href="/impressum">Impressum</a>
+            <a href="/datenschutz">Datenschutz</a>
+            <span>© 2026 Pulse · Made in Berlin</span>
+          </span>
         </div>
       </footer>
     </div>
