@@ -10,7 +10,9 @@ export const maxDuration = 60;
 // ONE gateway for every model call in Pulse (AGENTS.md rule 3): chat + embeddings
 // both ride OpenRouter, and the model is an env flip — the stage-2 winner ships
 // by changing CHAT_MODEL, no code.
-const CHAT_MODEL = process.env.CHAT_MODEL ?? "anthropic/claude-haiku-4.5";
+// Default = stage-2 winner (see semantic-search decision log): perfect judge scores,
+// injection-resistant, ~1/8th of haiku's cost. Override with CHAT_MODEL env.
+const CHAT_MODEL = process.env.CHAT_MODEL ?? "google/gemma-4-31b-it";
 const gateway = createOpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
