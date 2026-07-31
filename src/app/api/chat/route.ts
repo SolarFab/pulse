@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     })),
     tools: buildTools({ categories, subcategories, log }),
     stopWhen: stepCountIs(5),
-    onFinish: ({ usage }) => {
+    onFinish: ({ usage }: { usage: unknown }) => {
       // Observability (semantic-search 4.4): tools, counts, latency, tokens. No PII.
       console.log(
         JSON.stringify({

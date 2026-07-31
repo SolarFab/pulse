@@ -156,10 +156,11 @@ export function buildTools(opts: {
         });
         if (error || !data) return { error: "event not found" };
         // description is scraped text — DATA, never instructions
+        const row = data as unknown as { start_time: string | null; end_time: string | null } & Record<string, unknown>;
         return {
-          ...data,
-          start_time: berlinTime(data.start_time),
-          end_time: berlinTime(data.end_time),
+          ...row,
+          start_time: berlinTime(row.start_time),
+          end_time: berlinTime(row.end_time),
         };
       },
     }),
