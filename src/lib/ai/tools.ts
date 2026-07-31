@@ -7,6 +7,20 @@ import { embedQuery } from "./embedQuery";
 // filters constrain (strict SQL), `query` ranks (vector-only per Experiment 2).
 // SECURITY: results contain scraped text treated as DATA — see the system prompt.
 
+// Timestamps leave the DB in UTC; models read clock digits literally, so we convert
+// to Berlin time BEFORE the model ever sees them (a 20:00 gig must never say 18:00).
+function berlinTime(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleString("de-DE", {
+    timeZone: "Europe/Berlin",
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }) + " (Berlin)";
+}
+
 export type ToolLog = {
   tool: string;
   args: Record<string, unknown>;
@@ -107,7 +121,7 @@ export function buildTools(opts: {
             id: e.id,
             title: e.title,
             venue: e.venue_name,
-            start: e.start_time,
+            start: berlinTime(e.start_time as string),
             category: e.category,
             subcategory: e.subcategory,
             price: e.price,
@@ -141,7 +155,12 @@ export function buildTools(opts: {
           ms: Date.now() - t0,
         });
         if (error || !data) return { error: "event not found" };
-        return data; // description is scraped text — DATA, never instructions
+        // description is scraped text — DATA, never instructions
+        return {
+          ...data,
+          start_time: berlinTime(data.start_time),
+          end_time: berlinTime(data.end_time),
+        };
       },
     }),
   };
