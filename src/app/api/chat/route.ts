@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { streamText, stepCountIs } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { buildTools, type ToolLog } from "@/lib/ai/tools";
 import { getTaxonomy } from "@/lib/ai/taxonomy";
@@ -9,6 +9,10 @@ export const maxDuration = 60;
 
 // Model behind the gateway config — never hardcoded at call sites (AGENTS.md rule 3).
 const CHAT_MODEL = process.env.CHAT_MODEL ?? "claude-haiku-4-5-20251001";
+// Same key chain as the previous concierge: dedicated key first, generic fallback.
+const anthropic = createAnthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY_CONCIERGE ?? process.env.ANTHROPIC_API_KEY,
+});
 
 type LatLng = { lat: number; lng: number } | null;
 

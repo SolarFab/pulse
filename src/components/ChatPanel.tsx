@@ -200,6 +200,22 @@ export default function ChatPanel({
         }),
       });
 
+      // Never hang silently: surface auth/server errors as a visible message.
+      if (!res.ok) {
+        const hint =
+          res.status === 401
+            ? "Bitte melde dich (neu) an, um den Concierge zu nutzen."
+            : res.status === 429
+              ? "Zu viele Anfragen — versuch es in einer Minute nochmal."
+              : "Da ist gerade etwas schiefgelaufen. Versuch es bitte gleich nochmal.";
+        setMessages((prev) => {
+          const updated = [...prev];
+          updated[updated.length - 1] = { role: "assistant", content: hint };
+          return updated;
+        });
+        return;
+      }
+
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
 
