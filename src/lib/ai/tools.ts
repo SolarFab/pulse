@@ -92,6 +92,8 @@ export function buildTools(opts: {
         }
         const { data, error } = await supabaseAnon.rpc("match_events", {
           query_embedding: qvec,
+          // lexical title boost: exact-name lookups work even for unembedded events
+          ...(args.query ? { p_query_text: args.query.slice(0, 80) } : {}),
           p_category: args.category ?? null,
           p_subcategory: args.subcategory ?? null,
           ...(dateFrom ? { p_date_from: dateFrom } : {}),
@@ -115,6 +117,18 @@ export function buildTools(opts: {
           ...(degraded ? { degraded } : {}),
         });
         if (error) return { error: "search failed — apologise briefly and suggest retrying" };
+        if ((data?.length ?? 0) === 0 && (args.query || args.venue)) {
+          // Demand queue: a zero-result search is the purest signal of what users
+          // want and we lack — the discovery agent scouts these first. Fire-and-
+          // forget; logging must never delay or break the answer.
+          supabaseAnon
+            .rpc("log_discovery_miss", {
+              p_query: args.query ?? null,
+              p_venue: args.venue ?? null,
+              p_neighborhood: args.neighborhood ?? null,
+            })
+            .then(undefined, () => {});
+        }
         return {
           ...(degraded ? { note: "semantic ranking unavailable; results are filter-only" } : {}),
           events: (data ?? []).map((e: Record<string, unknown>) => ({
