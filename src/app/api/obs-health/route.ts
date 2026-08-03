@@ -15,6 +15,8 @@ export async function GET() {
   return Response.json({
     pkPrefix: pk.slice(0, 5),           // public key prefix — must be "pk-lf"
     pkLen: pk.length,
+    pkLastCharCode: pk.charCodeAt(pk.length - 1),  // 34=quote, 32=space, 10=newline
+    skLen: (process.env.LANGFUSE_SECRET_KEY ?? "").length,
     baseUrl: process.env.LANGFUSE_BASE_URL ?? "(default)",
     hasPublicKey: !!process.env.LANGFUSE_PUBLIC_KEY,
     hasSecretKey: !!process.env.LANGFUSE_SECRET_KEY,
