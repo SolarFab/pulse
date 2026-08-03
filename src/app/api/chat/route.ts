@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server";
+import { after } from "next/server";
 import { streamText, stepCountIs } from "ai";
+import { observe, propagateAttributes, updateActiveObservation } from "@langfuse/tracing";
+import { trace } from "@opentelemetry/api";
+import { langfuseSpanProcessor } from "../../../../instrumentation";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { buildTools, type ToolLog } from "@/lib/ai/tools";
@@ -82,7 +86,7 @@ STYLE:
 // Simple in-memory rate limit: max 20 requests per IP per minute
 const rateLimit = new Map<string, { count: number; reset: number }>();
 
-export async function POST(req: NextRequest) {
+const handler = async (req: NextRequest) => {
   // The concierge requires a signed-in user — every request costs API money.
   const authClient = await createAuthClient();
   const {
@@ -113,6 +117,13 @@ export async function POST(req: NextRequest) {
   const log: ToolLog = [];
   const t0 = Date.now();
 
+  const lastUser = [...messages].reverse().find((m: { role: string }) => m.role === "user");
+  updateActiveObservation({ input: String(lastUser?.content ?? "").slice(0, 500) });
+
+  return await propagateAttributes(
+    { traceName: "concierge-turn", userId: user.id, tags: ["concierge"] },
+    async () => {
+
   const result = streamText({
     model: gateway.chat(CHAT_MODEL),
     system: systemPrompt(homeLocation ?? null, currentLocation ?? null),
@@ -122,7 +133,10 @@ export async function POST(req: NextRequest) {
     })),
     tools: buildTools({ categories, subcategories, log }),
     stopWhen: stepCountIs(5),
-    onFinish: ({ usage }: { usage: unknown }) => {
+    experimental_telemetry: { isEnabled: true },
+    onFinish: ({ usage, text }: { usage: unknown; text: string }) => {
+      updateActiveObservation({ output: text.slice(0, 1000) });
+      trace.getActiveSpan()?.end();
       // Observability (semantic-search 4.4): tools, counts, latency, tokens. No PII.
       console.log(
         JSON.stringify({
@@ -156,6 +170,11 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  const processor = langfuseSpanProcessor;
+  if (processor) {
+    after(async () => await processor.forceFlush());
+  }
+
   return new Response(readable, {
     headers: {
       "Content-Type": "text/event-stream",
@@ -163,4 +182,8 @@ export async function POST(req: NextRequest) {
       Connection: "keep-alive",
     },
   });
-}
+    }
+  );
+};
+
+export const POST = observe(handler, { name: "concierge-request", endOnExit: false });
