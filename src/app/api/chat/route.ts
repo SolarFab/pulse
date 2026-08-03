@@ -3,7 +3,8 @@ import { after } from "next/server";
 import { streamText, stepCountIs } from "ai";
 import { observe, propagateAttributes, updateActiveObservation } from "@langfuse/tracing";
 import { trace } from "@opentelemetry/api";
-import { langfuseSpanProcessor } from "../../../instrumentation";
+import { getLangfuseProcessor, register } from "../../../instrumentation";
+register(); // ensure provider exists in THIS bundle too (prod bundles don't share modules)
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { buildTools, type ToolLog } from "@/lib/ai/tools";
@@ -170,7 +171,7 @@ const handler = async (req: NextRequest) => {
     },
   });
 
-  const processor = langfuseSpanProcessor;
+  const processor = getLangfuseProcessor();
   if (processor) {
     after(async () => await processor.forceFlush());
   }
