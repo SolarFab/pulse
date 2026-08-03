@@ -119,6 +119,11 @@ const handler = async (req: NextRequest) => {
   const t0 = Date.now();
 
   const lastUser = [...messages].reverse().find((m: { role: string }) => m.role === "user");
+  // Capture the root span BY REFERENCE: streaming callbacks lose ambient OTEL
+  // context, so updateActiveObservation() inside onFinish silently no-ops.
+  const rootSpan = trace.getActiveSpan();
+  rootSpan?.setAttribute("langfuse.observation.input",
+    String(lastUser?.content ?? "").slice(0, 500));
   updateActiveObservation({ input: String(lastUser?.content ?? "").slice(0, 500) });
 
   return await propagateAttributes(
@@ -136,8 +141,8 @@ const handler = async (req: NextRequest) => {
     stopWhen: stepCountIs(5),
     experimental_telemetry: { isEnabled: true },
     onFinish: ({ usage, text }: { usage: unknown; text: string }) => {
-      updateActiveObservation({ output: text.slice(0, 1000) });
-      trace.getActiveSpan()?.end();
+      rootSpan?.setAttribute("langfuse.observation.output", text.slice(0, 1000));
+      rootSpan?.end();
       // Observability (semantic-search 4.4): tools, counts, latency, tokens. No PII.
       console.log(
         JSON.stringify({
