@@ -580,7 +580,11 @@ const LANDING_CSS = `
 .ld a.ld-ghost, .ld a.ld-inv { color: var(--ink); }
 @media (max-width: 720px) { .ld-nav-links { display: none; } }
 
-.ld-hero { padding: 72px 0 40px; display: grid; grid-template-columns: 1fr 400px; gap: 48px; align-items: center; }
+/* padding-block, not the padding shorthand: a shorthand with 0 for the inline
+   sides also cancels .ld-wrap's 24px gutters. Invisible on desktop, where
+   max-width centres the content, but edge-to-edge text on any screen narrower
+   than 1120px. */
+.ld-hero { padding-block: 72px 40px; display: grid; grid-template-columns: 1fr 400px; gap: 48px; align-items: center; }
 @media (max-width: 920px) { .ld-hero { grid-template-columns: 1fr; padding-top: 48px; } }
 .ld-eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
@@ -769,7 +773,7 @@ const LANDING_CSS = `
 }
 .ld-replay:hover { color: var(--ink); }
 
-.ld-stats { padding: 56px 0 8px; }
+.ld-stats { padding-block: 56px 8px; }   /* keep .ld-wrap's inline gutters */
 .ld-stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 @media (max-width: 800px) { .ld-stat-grid { grid-template-columns: repeat(2, 1fr); } }
 .ld-stat {
@@ -779,7 +783,11 @@ const LANDING_CSS = `
 .ld-stat .v { font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }
 .ld-stat .l { font-size: 13px; color: var(--ink-3); font-weight: 500; margin-top: 2px; }
 
-.ld section { display: block; padding: 72px 0; }
+/* Root cause of the mobile edge-to-edge text: the .ld-section selector (0,1,1)
+   outranks .ld-wrap (0,1,0), so the shorthand's 0 stripped the inline gutters
+   from every section on the page. padding-block leaves them alone.
+   NOTE: this whole stylesheet is a JS template literal — no backticks in here. */
+.ld section { display: block; padding-block: 72px; }
 .ld-sec-eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-a); margin-bottom: 12px; }
 .ld h2 { font-size: clamp(28px, 3.4vw, 38px); letter-spacing: -0.03em; font-weight: 800; line-height: 1.12; margin-bottom: 14px; }
 .ld-sec-sub { font-size: 16px; color: var(--ink-2); max-width: 560px; margin-bottom: 40px; }
