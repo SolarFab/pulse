@@ -13,7 +13,7 @@ export async function GET() {
   if (langfuseSpanProcessor) await langfuseSpanProcessor.forceFlush();
   const pk = process.env.LANGFUSE_PUBLIC_KEY ?? "";
   return Response.json({
-    pkPrefix: pk.slice(0, 5),           // public key prefix — must be "pk-lf"
+    pkPrefix: pk.slice(0, 12),           // public key prefix — must be "pk-lf"
     pkLen: pk.length,
     pkLastCharCode: pk.charCodeAt(pk.length - 1),  // 34=quote, 32=space, 10=newline
     skLen: (process.env.LANGFUSE_SECRET_KEY ?? "").length,
