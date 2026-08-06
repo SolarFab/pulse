@@ -161,7 +161,7 @@ const handler = async (req: NextRequest) => {
     // below are therefore recorded by us, from the step data the SDK does give back.
     onFinish: (event: { usage?: unknown; text: string; steps?: unknown[] }) => {
       const { usage, text, steps } = event;
-      recordGenerations({ steps, usage, model: CHAT_MODEL, text, startedAt: modelStart });
+      recordGenerations({ steps, usage, model: CHAT_MODEL, text, startedAt: modelStart, ttftMs });
       rootSpan?.setAttribute("langfuse.observation.output", text.slice(0, 1000));
       rootSpan?.end();
       // Observability (semantic-search 4.4): tools, counts, latency, tokens. No PII.

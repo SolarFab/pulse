@@ -41,8 +41,10 @@ export function recordGenerations(args: {
   model: string;
   text: string;
   startedAt: number;
+  /** ms from the first model call until the first streamed token reached the user. */
+  ttftMs?: number | null;
 }): void {
-  const { steps, usage, model, text, startedAt } = args;
+  const { steps, usage, model, text, startedAt, ttftMs } = args;
   try {
     const list = (steps as Step[] | undefined) ?? [];
     if (list.length === 0) {
@@ -54,6 +56,7 @@ export function recordGenerations(args: {
         usage: usage as Usage | undefined,
         output: text.slice(0, 2000),
         startTime: new Date(startedAt),
+        completionStartTime: ttftMs != null ? new Date(startedAt + ttftMs) : undefined,
       });
       return;
     }
@@ -80,6 +83,11 @@ export function recordGenerations(args: {
         output: s.text?.slice(0, 2000) || (calls.length ? { tool_calls: calls } : ""),
         startTime: start,
         endTime: new Date(cursor),
+        // Time-to-first-token belongs to the step that actually streamed to the
+        // user — the last one. Langfuse renders completionStartTime natively, which
+        // is the field for this; a metadata attribute would not surface as TTFT.
+        completionStartTime:
+          i === list.length - 1 && ttftMs != null ? new Date(startedAt + ttftMs) : undefined,
         metadata: {
           step: s.stepNumber ?? i,
           finish_reason: s.finishReason,
@@ -103,6 +111,7 @@ function emit(o: {
   output: unknown;
   startTime: Date;
   endTime?: Date;
+  completionStartTime?: Date;
   costUsd?: number;
   metadata?: Record<string, unknown>;
 }): void {
@@ -111,6 +120,7 @@ function emit(o: {
     {
       model: o.model,
       output: o.output,
+      ...(o.completionStartTime ? { completionStartTime: o.completionStartTime } : {}),
       metadata: o.metadata,
       // Langfuse has no price table for OpenRouter-namespaced model ids, so cost
       // stays 0 unless the provider hands one back. Recording a guessed cost would
