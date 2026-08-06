@@ -57,14 +57,19 @@ export function recordGenerations(args: {
       });
       return;
     }
-    // The steps are sequential; the SDK does not return per-step timestamps, so
-    // apportion the elapsed model time by output tokens — an estimate, and labelled
-    // as one in metadata rather than presented as measured.
-    const total = list.reduce((n, s) => n + (s.usage?.outputTokens ?? 0), 0) || 1;
+    // Durations come from the SDK's own MEASURED throughput
+    // (performance.effectiveOutputTokensPerSecond) — outputTokens / rate. An earlier
+    // version apportioned elapsed time by output tokens instead, which made every
+    // step report an identical tokens/sec: the figure was an artifact of the split,
+    // not a measurement. Falls back to apportioning only when the SDK omits the rate.
+    const totalOut = list.reduce((n, s) => n + (s.usage?.outputTokens ?? 0), 0) || 1;
     const elapsed = Date.now() - startedAt;
     let cursor = startedAt;
     list.forEach((s, i) => {
-      const share = ((s.usage?.outputTokens ?? 0) / total) * elapsed;
+      const out = s.usage?.outputTokens ?? 0;
+      const rate = s.performance?.effectiveOutputTokensPerSecond;
+      const measured = rate && rate > 0 ? (out / rate) * 1000 : null;
+      const share = measured ?? (out / totalOut) * elapsed;
       const start = new Date(cursor);
       cursor += share;
       const calls = (s.toolCalls ?? []).map((c) => c.toolName).filter(Boolean);
@@ -80,7 +85,9 @@ export function recordGenerations(args: {
           finish_reason: s.finishReason,
           provider: s.provider,
           tokens_per_second: s.performance?.effectiveOutputTokensPerSecond,
-          timing: "apportioned by output tokens — the SDK gives no per-step timestamps",
+          timing: s.performance?.effectiveOutputTokensPerSecond
+            ? "measured: outputTokens / effectiveOutputTokensPerSecond"
+            : "estimated: elapsed apportioned by output tokens (SDK gave no rate)",
         },
       });
     });
