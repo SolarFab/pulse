@@ -116,10 +116,6 @@ const handler = async (req: NextRequest) => {
     return new Response("messages required", { status: 400 });
   }
 
-  // Everything before streamText() is overhead the user waits through. Traced so a
-  // slow turn can be attributed to the model, the tools, or the setup around them.
-  const { value: taxonomy } = await step("load-taxonomy", {}, () => getTaxonomy());
-  const { categories, subcategories } = taxonomy;
   const log: ToolLog = [];
   const t0 = Date.now();
 
@@ -131,9 +127,17 @@ const handler = async (req: NextRequest) => {
     String(lastUser?.content ?? "").slice(0, 500));
   updateActiveObservation({ input: String(lastUser?.content ?? "").slice(0, 500) });
 
+  // EVERYTHING traced belongs inside propagateAttributes. It stamps trace-level
+  // attributes (name, userId, tags) onto spans created within its scope only —
+  // load-taxonomy used to run before it and landed in the trace with no trace name
+  // and no userId, which is how it showed up blank in the observations table.
   return await propagateAttributes(
     { traceName: "concierge-turn", userId: user.id, tags: ["concierge"] },
     async () => {
+
+  // Setup is overhead the user waits through, so it is traced too.
+  const { value: taxonomy } = await step("load-taxonomy", {}, () => getTaxonomy());
+  const { categories, subcategories } = taxonomy;
 
   // Total latency hides the number that matters: how long until the user sees ANY
   // text. A 15s turn that starts writing at 3s is a different product from one that
