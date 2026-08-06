@@ -4,10 +4,11 @@
 // duplicate while real spans die in the registered instance's batch queue.
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
+import type { Tracer } from "@opentelemetry/api";
 
 type G = typeof globalThis & {
   __lfProcessor?: LangfuseSpanProcessor | null;
-  __lfRegistered?: boolean;
+  __lfProvider?: NodeTracerProvider | null;
 };
 const g = globalThis as G;
 
@@ -18,10 +19,37 @@ export function getLangfuseProcessor(): LangfuseSpanProcessor | null {
   return g.__lfProcessor;
 }
 
+/** The provider itself, kept on globalThis so every bundle shares ONE instance. */
+function getProvider(): NodeTracerProvider | null {
+  if (g.__lfProvider === undefined) {
+    const processor = getLangfuseProcessor();
+    if (!processor) {
+      g.__lfProvider = null;
+    } else {
+      const provider = new NodeTracerProvider({ spanProcessors: [processor] });
+      provider.register(); // still set the global, for anything that resolves it that way
+      g.__lfProvider = provider;
+    }
+  }
+  return g.__lfProvider ?? null;
+}
+
 export function register() {
-  const processor = getLangfuseProcessor();
-  if (!processor || g.__lfRegistered) return;
-  const provider = new NodeTracerProvider({ spanProcessors: [processor] });
-  provider.register();
-  g.__lfRegistered = true;
+  getProvider();
+}
+
+/**
+ * A tracer taken DIRECTLY from our provider.
+ *
+ * Why not let the AI SDK resolve one itself: `provider.register()` sets the global
+ * tracer on the copy of `@opentelemetry/api` inside whichever bundle called it. In a
+ * production Next build the route handler is a separate bundle with its OWN copy of
+ * that module, whose global was never set — so the AI SDK asked for a tracer, got a
+ * no-op, and every generation and tool span vanished. The root span survived only
+ * because it is created through @langfuse/tracing directly.
+ *
+ * Handing the tracer over explicitly removes the global registry from the path.
+ */
+export function getTracer(): Tracer | undefined {
+  return getProvider()?.getTracer("pulse-concierge") ?? undefined;
 }

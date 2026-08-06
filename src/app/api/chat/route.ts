@@ -3,7 +3,7 @@ import { after } from "next/server";
 import { streamText, stepCountIs } from "ai";
 import { observe, propagateAttributes, updateActiveObservation } from "@langfuse/tracing";
 import { trace } from "@opentelemetry/api";
-import { getLangfuseProcessor, register } from "../../../instrumentation";
+import { getLangfuseProcessor, getTracer, register } from "../../../instrumentation";
 register(); // ensure provider exists in THIS bundle too (prod bundles don't share modules)
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
@@ -139,7 +139,16 @@ const handler = async (req: NextRequest) => {
     })),
     tools: buildTools({ categories, subcategories, log }),
     stopWhen: stepCountIs(5),
-    experimental_telemetry: { isEnabled: true },
+    // The tracer is passed EXPLICITLY. Left to resolve one from the global OTEL
+    // registry, the AI SDK gets a no-op in the production bundle and every
+    // generation/tool span is silently dropped — see instrumentation.getTracer().
+    experimental_telemetry: {
+      isEnabled: true,
+      tracer: getTracer(),
+      functionId: "concierge-turn",
+      recordInputs: true,
+      recordOutputs: true,
+    },
     onFinish: ({ usage, text }: { usage: unknown; text: string }) => {
       rootSpan?.setAttribute("langfuse.observation.output", text.slice(0, 1000));
       rootSpan?.end();
