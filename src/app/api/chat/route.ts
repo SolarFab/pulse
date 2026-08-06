@@ -3,12 +3,16 @@ import { after } from "next/server";
 import { streamText, stepCountIs } from "ai";
 import { observe, propagateAttributes, updateActiveObservation } from "@langfuse/tracing";
 import { trace } from "@opentelemetry/api";
-import { getLangfuseProcessor, getTracer, register } from "../../../instrumentation";
-register(); // ensure provider exists in THIS bundle too (prod bundles don't share modules)
+import { getLangfuseProcessor, bindGlobalTracer } from "../../../instrumentation";
+// Bind the tracer to THIS bundle's copy of @opentelemetry/api — the one the AI SDK
+// will read from. Without it the SDK gets a no-op tracer in production and every
+// generation/tool span is dropped. See instrumentation.bindGlobalTracer().
+bindGlobalTracer(trace as never);
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { buildTools, type ToolLog } from "@/lib/ai/tools";
 import { getTaxonomy } from "@/lib/ai/taxonomy";
+import { step } from "@/lib/ai/trace";
 
 export const maxDuration = 60;
 
@@ -114,7 +118,10 @@ const handler = async (req: NextRequest) => {
     return new Response("messages required", { status: 400 });
   }
 
-  const { categories, subcategories } = await getTaxonomy();
+  // Everything before streamText() is overhead the user waits through. Traced so a
+  // slow turn can be attributed to the model, the tools, or the setup around them.
+  const { value: taxonomy } = await step("load-taxonomy", {}, () => getTaxonomy());
+  const { categories, subcategories } = taxonomy;
   const log: ToolLog = [];
   const t0 = Date.now();
 
@@ -139,12 +146,10 @@ const handler = async (req: NextRequest) => {
     })),
     tools: buildTools({ categories, subcategories, log }),
     stopWhen: stepCountIs(5),
-    // The tracer is passed EXPLICITLY. Left to resolve one from the global OTEL
-    // registry, the AI SDK gets a no-op in the production bundle and every
-    // generation/tool span is silently dropped — see instrumentation.getTracer().
+    // v7 has no `tracer` option — the SDK resolves one from the global registry,
+    // which is why bindGlobalTracer() above is what actually makes these spans appear.
     experimental_telemetry: {
       isEnabled: true,
-      tracer: getTracer(),
       functionId: "concierge-turn",
       recordInputs: true,
       recordOutputs: true,

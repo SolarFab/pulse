@@ -38,18 +38,32 @@ export function register() {
   getProvider();
 }
 
-/**
- * A tracer taken DIRECTLY from our provider.
- *
- * Why not let the AI SDK resolve one itself: `provider.register()` sets the global
- * tracer on the copy of `@opentelemetry/api` inside whichever bundle called it. In a
- * production Next build the route handler is a separate bundle with its OWN copy of
- * that module, whose global was never set — so the AI SDK asked for a tracer, got a
- * no-op, and every generation and tool span vanished. The root span survived only
- * because it is created through @langfuse/tracing directly.
- *
- * Handing the tracer over explicitly removes the global registry from the path.
- */
+/** A tracer from our provider, for spans we create ourselves. */
 export function getTracer(): Tracer | undefined {
   return getProvider()?.getTracer("pulse-concierge") ?? undefined;
+}
+
+/**
+ * Bind our provider to the caller's OWN copy of `@opentelemetry/api`.
+ *
+ * The AI SDK (v7) has no `tracer` option — it resolves a tracer from the global
+ * registry, full stop. And `provider.register()` sets that global on the copy of
+ * `@opentelemetry/api` reachable from *this* module. In a production Next build the
+ * route handler is a separate bundle that may resolve a different copy, whose global
+ * was never set: the SDK then gets a no-op tracer and every generation and tool span
+ * is silently dropped. The root span survives, because @langfuse/tracing creates it
+ * directly — which is exactly why this looked like partial success.
+ *
+ * So the route passes in the `trace` object it imported itself, and we set the global
+ * on that one. Returns whether a provider was bound, for a startup log.
+ */
+export function bindGlobalTracer(api: {
+  setGlobalTracerProvider: (p: never) => boolean;
+}): boolean {
+  const provider = getProvider();
+  if (!provider) return false;
+  // Returns false if a provider is already registered on that copy — which is a
+  // success for us, not a failure: something is already there to receive spans.
+  api.setGlobalTracerProvider(provider as never);
+  return true;
 }
