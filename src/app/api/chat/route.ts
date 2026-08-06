@@ -3,16 +3,14 @@ import { after } from "next/server";
 import { streamText, stepCountIs } from "ai";
 import { observe, propagateAttributes, updateActiveObservation } from "@langfuse/tracing";
 import { trace } from "@opentelemetry/api";
-import { getLangfuseProcessor, bindGlobalTracer } from "../../../instrumentation";
-// Bind the tracer to THIS bundle's copy of @opentelemetry/api — the one the AI SDK
-// will read from. Without it the SDK gets a no-op tracer in production and every
-// generation/tool span is dropped. See instrumentation.bindGlobalTracer().
-bindGlobalTracer(trace as never);
+import { getLangfuseProcessor, register } from "../../../instrumentation";
+register(); // ensure the provider exists in THIS bundle too (prod bundles don't share modules)
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { buildTools, type ToolLog } from "@/lib/ai/tools";
 import { getTaxonomy } from "@/lib/ai/taxonomy";
 import { step } from "@/lib/ai/trace";
+import { recordGenerations } from "@/lib/ai/generations";
 
 export const maxDuration = 60;
 
@@ -137,6 +135,12 @@ const handler = async (req: NextRequest) => {
     { traceName: "concierge-turn", userId: user.id, tags: ["concierge"] },
     async () => {
 
+  // Total latency hides the number that matters: how long until the user sees ANY
+  // text. A 15s turn that starts writing at 3s is a different product from one that
+  // shows nothing for 15s.
+  const modelStart = Date.now();
+  let ttftMs: number | null = null;
+
   const result = streamText({
     model: gateway.chat(CHAT_MODEL),
     system: systemPrompt(homeLocation ?? null, currentLocation ?? null),
@@ -146,21 +150,27 @@ const handler = async (req: NextRequest) => {
     })),
     tools: buildTools({ categories, subcategories, log }),
     stopWhen: stepCountIs(5),
-    // v7 has no `tracer` option — the SDK resolves one from the global registry,
-    // which is why bindGlobalTracer() above is what actually makes these spans appear.
-    experimental_telemetry: {
-      isEnabled: true,
-      functionId: "concierge-turn",
-      recordInputs: true,
-      recordOutputs: true,
-    },
-    onFinish: ({ usage, text }: { usage: unknown; text: string }) => {
+    // NOTE: AI SDK v7 emits NO OpenTelemetry spans at all — `@opentelemetry` does not
+    // appear anywhere in its bundle. v7 replaced OTEL with an internal telemetry
+    // dispatcher, so `experimental_telemetry` produces no generations no matter how
+    // the tracer is wired. (Two earlier fixes chased that dead end.) The generations
+    // below are therefore recorded by us, from the step data the SDK does give back.
+    onFinish: (event: { usage?: unknown; text: string; steps?: unknown[] }) => {
+      const { usage, text, steps } = event;
+      recordGenerations({ steps, usage, model: CHAT_MODEL, text, startedAt: modelStart });
       rootSpan?.setAttribute("langfuse.observation.output", text.slice(0, 1000));
       rootSpan?.end();
       // Observability (semantic-search 4.4): tools, counts, latency, tokens. No PII.
       console.log(
         JSON.stringify({
-          chat: { model: CHAT_MODEL, ms: Date.now() - t0, tools: log, usage },
+          chat: {
+            model: CHAT_MODEL,
+            ms: Date.now() - t0,
+            ttft_ms: ttftMs,          // what the user actually waits for
+            steps: steps?.length ?? 1,
+            tools: log,
+            usage,
+          },
         })
       );
     },
@@ -172,6 +182,10 @@ const handler = async (req: NextRequest) => {
     async start(controller) {
       try {
         for await (const chunk of result.textStream) {
+          if (ttftMs === null) {
+            ttftMs = Date.now() - modelStart;
+            rootSpan?.setAttribute("ttft_ms", ttftMs);
+          }
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`)
           );
