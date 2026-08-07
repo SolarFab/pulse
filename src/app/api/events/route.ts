@@ -85,6 +85,13 @@ export async function GET(req: NextRequest) {
   const timeFilter = params.get("time") || "today";
   const categories = params.get("categories");
   const tag = params.get("tag"); // subtag filter (e.g., "jazz")
+  // Canonical genre slugs, comma-separated (e.g. "hip-hop,techno"). Multi-value
+  // by design: taste is not mutually exclusive the way a format is.
+  const genres = (params.get("genres") || "")
+    .split(",")
+    .map((g) => g.trim())
+    .filter(Boolean)
+    .slice(0, 8);
   const dateFrom = params.get("from"); // YYYY-MM-DD
   const dateTo = params.get("to"); // YYYY-MM-DD
 
@@ -155,7 +162,7 @@ export async function GET(req: NextRequest) {
 
   // Trimmed payload: map pins and list rows only need these fields.
   // Full records (description, tags, image, links) load on demand via ?ids=.
-  const selectCols = "id,title,venue_name,lat,lng,neighborhood,start_time,end_time,category,subcategory,price,source";
+  const selectCols = "id,title,venue_name,lat,lng,neighborhood,start_time,end_time,category,subcategory,genres,price,source";
 
   const now = new Date();
   const windowStart = new Date(startFilter);
@@ -193,6 +200,15 @@ export async function GET(req: NextRequest) {
     // Filter by subcategory column (e.g., "jazz-blues", "electronic")
     q1 = q1.eq("subcategory", tag);
     q2 = q2.eq("subcategory", tag);
+  }
+
+  // Genre is its own dimension (genre-dimension §3.4): multi-valued, curated,
+  // and orthogonal to category — a hip-hop club night is nightlife AND hip-hop,
+  // which the single subcategory slot could never express. Array-overlap, so an
+  // event matching ANY requested genre qualifies.
+  if (genres.length) {
+    q1 = q1.overlaps("genres", genres);
+    q2 = q2.overlaps("genres", genres);
   }
 
   q1 = q1.order("start_time", { ascending: true }).limit(1000);

@@ -89,6 +89,7 @@ describe("search_events relax-on-empty", () => {
     const tools = buildTools({
       categories: ["music", "nightlife"],
       subcategories: ["jazz-blues", "hip-hop"],
+      genres: ["hip-hop", "techno", "r-and-b"],
       log,
     });
     exec = tools.search_events.execute as unknown as Exec;
@@ -105,8 +106,8 @@ describe("search_events relax-on-empty", () => {
     expect(rpcMock.mock.calls[0][1]).toMatchObject({ p_subcategory: "hip-hop" });
     expect(rpcMock.mock.calls[1][1]).toMatchObject({ p_category: null, p_subcategory: null });
     expect(out.events).toHaveLength(1);
-    expect(out.note).toMatch(/across all categories/);
-    expect(log[0]).toMatchObject({ relaxed: true, results: 1 });
+    expect(out.note).toMatch(/relaxed/);
+    expect(log[0]).toMatchObject({ relaxed: "drop category/subcategory", results: 1 });
   });
 
   it("does not retry without a text query (pure filter browse may honestly be empty)", async () => {
@@ -149,5 +150,78 @@ describe("search_events relax-on-empty", () => {
 
     const missCalls = rpcMock.mock.calls.filter((c) => c[0] === "log_discovery_miss");
     expect(missCalls).toHaveLength(0);
+  });
+});
+
+
+// Genre is the exact-recall axis (genre-dimension §3.2). It is passed straight
+// through to the RPC and — unlike category/subcategory — survives the first
+// relax round, because it is curated and populated only by the deterministic
+// waterfall.
+describe("search_events genre filter", () => {
+  const row = {
+    id: "g1",
+    title: "Best Mistake",
+    venue_name: "Kitty Cheng",
+    start_time: "2026-08-06T20:00:00Z",
+    category: "nightlife",
+    subcategory: "party",
+    genres: ["hip-hop", "r-and-b"],
+    price: "Free",
+    neighborhood: "Mitte",
+  };
+
+  type Exec = (a: Record<string, unknown>) => Promise<{
+    events?: Array<Record<string, unknown>>;
+    note?: string;
+  }>;
+  let exec: Exec;
+  let log: import("./tools").ToolLog;
+
+  beforeEach(async () => {
+    rpcMock.mockReset();
+    log = [];
+    const { buildTools } = await import("./tools");
+    exec = buildTools({
+      categories: ["music", "nightlife"],
+      subcategories: ["party"],
+      genres: ["hip-hop", "techno", "r-and-b"],
+      log,
+    }).search_events.execute as unknown as Exec;
+  });
+
+  it("passes genres to the RPC and surfaces them on results", async () => {
+    rpcMock.mockResolvedValueOnce({ data: [row], error: null });
+
+    const out = await exec({ query: "hip hop", genres: ["hip-hop"] });
+
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({ p_genres: ["hip-hop"] });
+    expect(out.events?.[0].genres).toEqual(["hip-hop", "r-and-b"]);
+    expect(out.note).toBeUndefined();
+  });
+
+  it("keeps genres through the first relax, drops them only as a last resort", async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: [], error: null })   // category + genres
+      .mockResolvedValueOnce({ data: [], error: null })   // genres only
+      .mockResolvedValueOnce({ data: [row], error: null }); // nothing
+
+    const out = await exec({ query: "hip hop", category: "music", genres: ["hip-hop"] });
+
+    expect(rpcMock.mock.calls[1][1]).toMatchObject({ p_category: null, p_genres: ["hip-hop"] });
+    expect(rpcMock.mock.calls[2][1]).toMatchObject({ p_category: null, p_genres: null });
+    expect(log[0]).toMatchObject({ relaxed: "drop genres" });
+    expect(out.note).toMatch(/drop genres/);
+  });
+
+  it("stops relaxing as soon as a round returns results", async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: [], error: null })
+      .mockResolvedValueOnce({ data: [row], error: null });
+
+    await exec({ query: "hip hop", subcategory: "party", genres: ["hip-hop"] });
+
+    expect(rpcMock).toHaveBeenCalledTimes(2);   // never reached "drop genres"
+    expect(log[0]).toMatchObject({ relaxed: "drop category/subcategory" });
   });
 });

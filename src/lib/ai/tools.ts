@@ -30,15 +30,16 @@ export type ToolLog = {
   embed_ms?: number;   // time in the embedding API
   match_ms?: number;   // time in the vector query (both round-trips if relaxed)
   degraded?: boolean;
-  relaxed?: boolean;
+  relaxed?: string;
 }[];
 
 export function buildTools(opts: {
   categories: string[];
   subcategories: string[];
+  genres?: string[];
   log: ToolLog;
 }) {
-  const { categories, subcategories, log } = opts;
+  const { categories, subcategories, genres = [], log } = opts;
 
   const searchSchema = z
     .object({
@@ -50,6 +51,14 @@ export function buildTools(opts: {
         ? z.enum(subcategories as [string, ...string[]])
         : z.string()
       ).optional(),
+      // Genre is the exact-recall axis: every event carrying one of these is
+      // eligible and the embedding ranks within them. Use it for musical taste
+      // ("hip hop", "techno"); `query` alone can only rank, never enumerate.
+      genres: z
+        .array(genres.length ? z.enum(genres as [string, ...string[]]) : z.string())
+        .max(5)
+        .optional()
+        .describe("Canonical genre slugs; an event matching ANY of them qualifies."),
       date_from: z.string().datetime({ offset: true }).optional()
         .describe("ISO start of window. Resolve relative dates yourself (system prompt has now)."),
       date_to: z.string().datetime({ offset: true }).optional(),
@@ -101,13 +110,18 @@ export function buildTools(opts: {
           embedMs = r.ms;
           degraded = qvec === null; // embedding down -> filter-only, never broken
         }
-        const runMatch = (category: string | null, subcategory: string | null) =>
+        const runMatch = (
+          category: string | null,
+          subcategory: string | null,
+          genreList: string[] | null
+        ) =>
           supabaseAnon.rpc("match_events", {
             query_embedding: qvec,
             // lexical title boost: exact-name lookups work even for unembedded events
             ...(args.query ? { p_query_text: args.query.slice(0, 80) } : {}),
             p_category: category,
             p_subcategory: subcategory,
+            p_genres: genreList,
             ...(dateFrom ? { p_date_from: dateFrom } : {}),
             ...(dateTo ? { p_date_to: dateTo } : {}),
             p_neighborhood: args.neighborhood ?? null,
@@ -122,37 +136,49 @@ export function buildTools(opts: {
             p_limit: args.limit ?? 10,
           });
 
+        const wantGenres = args.genres?.length ? args.genres : null;
         const firstStep = await step("match-events",
           { type: "retriever", input: { filtered: true, has_vector: qvec !== null,
                                         category: args.category ?? null,
-                                        subcategory: args.subcategory ?? null } },
-          () => runMatch(args.category ?? null, args.subcategory ?? null));
+                                        subcategory: args.subcategory ?? null,
+                                        genres: wantGenres } },
+          () => runMatch(args.category ?? null, args.subcategory ?? null, wantGenres));
         const first = firstStep.value;
         let matchMs = firstStep.ms;
         const error = first.error;
         let data = first.data;
 
-        // Sparse-taxonomy degrade (hip-hop incident): genre-ish subcategories are
-        // nearly empty buckets, so a strict filter can zero out while the vector
-        // ranking would find the right events. If a filtered search with a query
-        // comes back empty, retry once without category/subcategory and let the
-        // embedding rank across everything. Deterministic — prompts ask nicely,
-        // code enforces (same pattern as the date guards above).
-        let relaxed = false;
-        if (
-          !error &&
-          (data?.length ?? 0) === 0 &&
-          args.query &&
-          (args.category || args.subcategory)
-        ) {
-          const retryStep = await step("match-events-relaxed",
-            { type: "retriever", input: { filtered: false, reason: "empty under genre filter" } },
-            () => runMatch(null, null));
-          matchMs += retryStep.ms;   // the relax costs a SECOND round-trip — show it
-          const retry = retryStep.value;
-          if (!retry.error && (retry.data?.length ?? 0) > 0) {
-            data = retry.data;
-            relaxed = true;
+        // Sparse-taxonomy degrade (hip-hop incident): a strict filter can zero
+        // out while the ranking would have found the right events. Relax in
+        // order of trustworthiness — category/subcategory conflate six axes and
+        // are 56% empty, so they go first; genre is curated and populated only
+        // by the deterministic waterfall, so it survives one round longer and is
+        // dropped only if nothing else worked. Deterministic — prompts ask
+        // nicely, code enforces (same pattern as the date guards above).
+        const relaxSteps: Array<{ label: string; run: () => ReturnType<typeof runMatch> }> = [];
+        if (args.category || args.subcategory) {
+          relaxSteps.push({
+            label: "drop category/subcategory",
+            run: () => runMatch(null, null, wantGenres),
+          });
+        }
+        if (wantGenres) {
+          relaxSteps.push({ label: "drop genres", run: () => runMatch(null, null, null) });
+        }
+
+        let relaxed: string | undefined;
+        if (!error && (data?.length ?? 0) === 0 && args.query) {
+          for (const relaxStep of relaxSteps) {
+            const retryStep = await step("match-events-relaxed",
+              { type: "retriever", input: { filtered: false, relaxed: relaxStep.label } },
+              relaxStep.run);
+            matchMs += retryStep.ms;   // each relax costs another round-trip — show it
+            const retry = retryStep.value;
+            if (!retry.error && (retry.data?.length ?? 0) > 0) {
+              data = retry.data;
+              relaxed = relaxStep.label;
+              break;
+            }
           }
         }
 
@@ -184,8 +210,8 @@ export function buildTools(opts: {
           ...(relaxed
             ? {
                 note:
-                  "the category/subcategory filter matched nothing, so results are " +
-                  "ranked by meaning across all categories — they may span formats",
+                  `no exact match, so the filter was relaxed (${relaxed}) and these are ` +
+                  "ranked by meaning — say so rather than presenting them as exact hits",
               }
             : {}),
           events: (data ?? []).map((e: Record<string, unknown>) => ({
@@ -195,6 +221,7 @@ export function buildTools(opts: {
             start: berlinTime(e.start_time as string),
             category: e.category,
             subcategory: e.subcategory,
+            ...(Array.isArray(e.genres) && e.genres.length ? { genres: e.genres } : {}),
             price: e.price,
             neighborhood: e.neighborhood,
             ...(e.distance_km != null

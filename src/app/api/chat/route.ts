@@ -58,7 +58,8 @@ TOOLS:
 - get_event_details only when the user asks for more about one specific event.
 
 WORKED EXAMPLES (how to translate questions into tool calls):
-1. "Jazz heute Abend?" → search_events({ query: "jazz konzert", date_from: <today 17:00>, date_to: <tomorrow 05:00> }) — genre and vibe belong in query (the semantic ranking reads descriptions); subcategory is a strict filter over a sparsely-tagged column, so use it only when the user explicitly asks for a format like an exhibition or club night, never for a music genre.
+1. "Jazz heute Abend?" → search_events({ query: "jazz konzert", genres: ["jazz"], date_from: <today 17:00>, date_to: <tomorrow 05:00> }) — musical taste goes in genres (a curated, exact filter: EVERY event carrying that genre is eligible, which free-text ranking alone can never guarantee) AND in query (which ranks within them). Use subcategory only for an explicit format like an exhibition or club night, never for a genre.
+1b. "Hip Hop heute oder morgen?" → search_events({ query: "hip hop rap", genres: ["hip-hop"], date_from: <today 17:00>, date_to: <tomorrow 05:00> }). Related genres are separate slugs — if the user means the wider vibe, pass them together: genres: ["hip-hop", "r-and-b", "trap"].
 2. "Was läuft diese Woche im SchwuZ?" → search_events({ venue: "SchwuZ", date_from: <now>, date_to: <+7 days> })
 3. "Kostenlos was mit Kindern am Sonntag, gern draußen" → search_events({ query: "kinder draußen", family_friendly: true, free_entry: true, date_from: <Sunday 00:00>, date_to: <Sunday 23:59> }) — "gern draußen" is a soft preference: rank it via query, do NOT hard-filter outdoor unless the user insists.
 4. "Was geht im Schillerkiez?" → search_events({ query: "Schillerkiez", lat: 52.474, lng: 13.428, radius_km: 1.2, date_from: <today> })
@@ -137,7 +138,7 @@ const handler = async (req: NextRequest) => {
 
   // Setup is overhead the user waits through, so it is traced too.
   const { value: taxonomy } = await step("load-taxonomy", {}, () => getTaxonomy());
-  const { categories, subcategories } = taxonomy;
+  const { categories, subcategories, genres } = taxonomy;
 
   // Total latency hides the number that matters: how long until the user sees ANY
   // text. A 15s turn that starts writing at 3s is a different product from one that
@@ -152,7 +153,7 @@ const handler = async (req: NextRequest) => {
       role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
       content: String(m.content ?? ""),
     })),
-    tools: buildTools({ categories, subcategories, log }),
+    tools: buildTools({ categories, subcategories, genres, log }),
     stopWhen: stepCountIs(5),
     // NOTE: AI SDK v7 emits NO OpenTelemetry spans at all — `@opentelemetry` does not
     // appear anywhere in its bundle. v7 replaced OTEL with an internal telemetry
