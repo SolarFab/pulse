@@ -11,6 +11,7 @@ import { buildTools, type ToolLog } from "@/lib/ai/tools";
 import { getTaxonomy } from "@/lib/ai/taxonomy";
 import { step } from "@/lib/ai/trace";
 import { recordGenerations } from "@/lib/ai/generations";
+import { routingFromEnv, withRouting } from "@/lib/ai/routing";
 
 export const maxDuration = 60;
 
@@ -20,9 +21,14 @@ export const maxDuration = 60;
 // Default = stage-2 winner (see semantic-search decision log): perfect judge scores,
 // injection-resistant, ~1/8th of haiku's cost. Override with CHAT_MODEL env.
 const CHAT_MODEL = process.env.CHAT_MODEL ?? "google/gemma-4-31b-it";
+
+// Routing preference for the gateway — why throughput and why a quantization
+// floor is argued in lib/ai/routing.ts, with the measurements behind it.
+const ROUTING = routingFromEnv();
 const gateway = createOpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
+  fetch: withRouting(ROUTING),
 });
 
 type LatLng = { lat: number; lng: number } | null;
@@ -91,6 +97,17 @@ STYLE:
 const rateLimit = new Map<string, { count: number; reset: number }>();
 
 const handler = async (req: NextRequest) => {
+  // Kicked off BEFORE the auth round-trip, not after: the taxonomy is public data
+  // that depends on nothing in this request, and on a cold lambda fetching it cost
+  // 0.3-1.2s of pure serial wait (measured in Langfuse). Overlapping it with auth
+  // makes that time free. It is only awaited further down, so nothing here can
+  // reject before we are ready to handle it.
+  // The cost of starting it for a request that turns out to be unauthenticated is
+  // bounded by getTaxonomy's own 10-minute cache: at most one extra read per
+  // instance per 10 minutes.
+  const taxonomyPromise = getTaxonomy();
+  taxonomyPromise.catch(() => {}); // getTaxonomy degrades internally; never unhandled
+
   // The concierge requires a signed-in user — every request costs API money.
   const authClient = await createAuthClient();
   const {
@@ -136,8 +153,10 @@ const handler = async (req: NextRequest) => {
     { traceName: "concierge-turn", userId: user.id, tags: ["concierge"] },
     async () => {
 
-  // Setup is overhead the user waits through, so it is traced too.
-  const { value: taxonomy } = await step("load-taxonomy", {}, () => getTaxonomy());
+  // Setup is overhead the user waits through, so it is traced too. The fetch was
+  // started before the auth check above, so this span now measures the RESIDUAL
+  // wait — which is exactly the number that matters.
+  const { value: taxonomy } = await step("load-taxonomy", {}, () => taxonomyPromise);
   const { categories, subcategories, genres } = taxonomy;
 
   // Total latency hides the number that matters: how long until the user sees ANY
