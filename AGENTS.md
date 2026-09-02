@@ -52,9 +52,19 @@ LLM02 sensitive-info disclosure (rule 1).
 Every change is a card on the Notion **Pulse Delivery** board with an ID like `FEAT-12`, and its
 `Repo` is `nachtkarte`. Put the ID in the branch (`feat/FEAT-12-slug`), the PR title and the commits.
 
-GitHub drives phases 5, 6, 7 and 8 automatically (`.github/workflows/notion-sync.yml`). **You must
-set the ones GitHub cannot see: 2 Spec, 3 Spec Review, 4 Architecture, 10 Closed.** See the
-`pulse-delivery` skill for the full phase contract.
+**Ownership** — whoever produces an artifact never grades it.
+**Fabian** owns 1 Ready and 8 Deployment · **Claude** writes: 2 Spec, 5 Development,
+7 Verification, 10 Closed · **Codex** reviews: 3 Spec Review, 4 Architecture, 6 Review.
+
+GitHub derives phases 5–8 from PR events (`.github/workflows/notion-sync.yml`) — **never set those
+by hand.** Everything else is written by whoever owns the phase, and the phase string must match the
+board exactly, `·` included.
+
+At intake tick **`Touches web`** (always true here) and **`Touches LLM`** — any model call, prompt
+or embedding, which covers the chat and scan routes. `Touches LLM` pulls Langfuse in from phase 2,
+because an acceptance criterion nobody can observe cannot be verified.
+
+See the `pulse-delivery` skill for the full contract.
 
 ## Don'ts
 - Don't use the `service_role` key on a user-request path.
