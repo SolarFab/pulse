@@ -5,7 +5,23 @@ process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon";
 
 const rpcMock = vi.fn();
-vi.mock("./anonClient", () => ({ supabaseAnon: { rpc: (...a: unknown[]) => rpcMock(...a) } }));
+// The config read is a table select, not an RPC — the schema tests never touch a
+// database, so it resolves to "nothing calibrated", which is also the honest
+// default: the ladder then runs unrelaxed rather than trusting a foreign floor.
+// The config read is a table select, not an RPC. Default is "nothing calibrated",
+// which is the honest default — the ladder then runs unrelaxed rather than
+// trusting a floor calibrated for some other embedding model.
+const configMock = { current: null as Record<string, unknown> | null };
+vi.mock("./anonClient", () => ({
+  supabaseAnon: {
+    rpc: (...a: unknown[]) => rpcMock(...a),
+    from: () => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: configMock.current, error: null }) }),
+      }),
+    }),
+  },
+}));
 vi.mock("./embedQuery", () => ({ embedQuery: async () => "[0.1,0.2]" }));
 
 let searchSchema: { safeParse: (v: unknown) => { success: boolean } };
@@ -62,166 +78,133 @@ describe("search_events schema", () => {
 
 // Sparse-taxonomy degrade (hip-hop incident): an empty filtered result with a
 // text query retries once without category/subcategory instead of dead-ending.
-describe("search_events relax-on-empty", () => {
-  const row = {
-    id: "e1",
-    title: "Best Mistake @ Kitty Cheng",
-    venue_name: "Kitty Cheng Bar",
-    start_time: "2026-08-06T20:00:00Z",
-    category: "nightlife",
-    subcategory: "party",
-    price: "Free",
-    neighborhood: "Mitte",
-  };
-
-  type Exec = (args: Record<string, unknown>) => Promise<{
-    events?: unknown[];
-    note?: string;
-    error?: string;
-  }>;
-  let exec: Exec;
-  let log: import("./tools").ToolLog;
-
-  beforeEach(async () => {
+/**
+ * These replace the old "relax-on-empty" and "genre filter" suites, which pinned
+ * the behaviour the phase 6 review required removing: inferred taxonomy applied
+ * as a hard filter, and relaxation triggered by a zero row count. Both are the
+ * defect, so their tests are the defect's specification and had to go with it.
+ */
+describe("search_events — staged retrieval", () => {
+  beforeEach(() => {
     rpcMock.mockReset();
-    log = [];
+    configMock.current = null;
+    delete process.env.EMBED_MODEL;
+  });
+
+  const rowsOf = (n: number, sim = 0.9) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `e${i}`, title: `Event ${i}`, similarity: sim,
+      price_qualifies: true, price_unknown: false, area_resolved_by: "postcode",
+    }));
+
+  async function search(args: Record<string, unknown>) {
     const { buildTools } = await import("./tools");
+    const log: unknown[] = [];
     const tools = buildTools({
-      categories: ["music", "nightlife"],
-      subcategories: ["jazz-blues", "hip-hop"],
-      genres: ["hip-hop", "techno", "r-and-b"],
-      log,
+      categories: ["music", "nightlife"], subcategories: ["comedy"],
+      genres: ["hip-hop"], areas: [
+        { area_id: "prenzlauer-berg", centroid_lat: 52.54, centroid_lng: 13.42 },
+        { area_id: "neukoelln", centroid_lat: 52.48, centroid_lng: 13.44 },
+      ],
+      log: log as never,
     });
-    exec = tools.search_events.execute as unknown as Exec;
+    const exec = (tools.search_events as unknown as {
+      execute: (a: unknown, c?: unknown) => Promise<unknown>;
+    }).execute;
+    const out = await exec(args, {});
+    return { out: out as Record<string, unknown>, log: log as Record<string, unknown>[] };
+  }
+
+  it("calls match_events_v2, never the v1 function", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
+    await search({ query: "comedy" });
+    expect(rpcMock.mock.calls[0][0]).toBe("match_events_v2");
   });
 
-  it("retries without category/subcategory when the filtered search is empty", async () => {
-    rpcMock
-      .mockResolvedValueOnce({ data: [], error: null }) // strict: subcategory bucket empty
-      .mockResolvedValueOnce({ data: [row], error: null }); // relaxed: vector finds it
-
-    const out = await exec({ query: "hip hop", subcategory: "hip-hop" });
-
-    expect(rpcMock).toHaveBeenCalledTimes(2);
-    expect(rpcMock.mock.calls[0][1]).toMatchObject({ p_subcategory: "hip-hop" });
-    expect(rpcMock.mock.calls[1][1]).toMatchObject({ p_category: null, p_subcategory: null });
-    expect(out.events).toHaveLength(1);
-    expect(out.note).toMatch(/relaxed/);
-    expect(log[0]).toMatchObject({ relaxed: "drop category/subcategory", results: 1 });
+  it("sends inferred taxonomy as ranking inputs, never as hard filters", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
+    await search({ query: "hip hop", subcategory: "comedy", genres: ["hip-hop"] });
+    const a = rpcMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(a.p_rank_subcategory).toBe("comedy");
+    expect(a.p_rank_genres).toEqual(["hip-hop"]);
+    // the gate that hid 45 of 97 comedy events must not be set from an inference
+    expect(a.p_filter_subcategory).toBeNull();
+    expect(a.p_filter_category).toBeNull();
   });
 
-  it("does not retry without a text query (pure filter browse may honestly be empty)", async () => {
-    rpcMock.mockResolvedValueOnce({ data: [], error: null });
-
-    const out = await exec({ subcategory: "hip-hop" });
-
-    expect(rpcMock).toHaveBeenCalledTimes(1);
-    expect(out.events).toHaveLength(0);
+  it("passes a canonical area id, so no raw location string reaches SQL", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
+    await search({ query: "comedy", area_id: "prenzlauer-berg" });
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_area_id).toBe("prenzlauer-berg");
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_lat).toBe(52.54);
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_lng).toBe(13.42);
   });
 
-  it("does not retry when the filtered search already has results", async () => {
-    rpcMock.mockResolvedValueOnce({ data: [row], error: null });
-
-    const out = await exec({ query: "party", category: "nightlife" });
-
-    expect(rpcMock).toHaveBeenCalledTimes(1);
-    expect(out.note).toBeUndefined();
-    expect(out.events).toHaveLength(1);
+  it("preserves explicit hard filters", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
+    await search({
+      query: "kids", family_friendly: true, outdoor: true,
+      free_entry: true, neighborhood: "Kollwitzkiez",
+    });
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({
+      p_family: true, p_outdoor: true, p_free: true, p_neighborhood: "Kollwitzkiez",
+    });
   });
 
-  it("logs a discovery miss only when the relaxed retry is also empty", async () => {
-    rpcMock
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [], error: null }) // relax also empty
-      .mockResolvedValueOnce({ data: null, error: null }); // log_discovery_miss
-
-    await exec({ query: "zydeco", category: "music" });
-
-    const missCalls = rpcMock.mock.calls.filter((c) => c[0] === "log_discovery_miss");
-    expect(missCalls).toHaveLength(1);
+  it("converts search result timestamps to Berlin time", async () => {
+    rpcMock.mockResolvedValue({
+      data: [{ ...rowsOf(1)[0], start_time: "2026-09-03T18:00:00Z" }], error: null,
+    });
+    const { out } = await search({ query: "comedy" });
+    expect((out.events as Array<Record<string, unknown>>)[0].start_time).toContain("20:00");
   });
 
-  it("suppresses the discovery miss when the relax recovers results (no false demand)", async () => {
-    rpcMock
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [row], error: null });
-
-    await exec({ query: "hip hop", subcategory: "hip-hop" });
-
-    const missCalls = rpcMock.mock.calls.filter((c) => c[0] === "log_discovery_miss");
-    expect(missCalls).toHaveLength(0);
-  });
-});
-
-
-// Genre is the exact-recall axis (genre-dimension §3.2). It is passed straight
-// through to the RPC and — unlike category/subcategory — survives the first
-// relax round, because it is curated and populated only by the deterministic
-// waterfall.
-describe("search_events genre filter", () => {
-  const row = {
-    id: "g1",
-    title: "Best Mistake",
-    venue_name: "Kitty Cheng",
-    start_time: "2026-08-06T20:00:00Z",
-    category: "nightlife",
-    subcategory: "party",
-    genres: ["hip-hop", "r-and-b"],
-    price: "Free",
-    neighborhood: "Mitte",
-  };
-
-  type Exec = (a: Record<string, unknown>) => Promise<{
-    events?: Array<Record<string, unknown>>;
-    note?: string;
-  }>;
-  let exec: Exec;
-  let log: import("./tools").ToolLog;
-
-  beforeEach(async () => {
-    rpcMock.mockReset();
-    log = [];
-    const { buildTools } = await import("./tools");
-    exec = buildTools({
-      categories: ["music", "nightlife"],
-      subcategories: ["party"],
-      genres: ["hip-hop", "techno", "r-and-b"],
-      log,
-    }).search_events.execute as unknown as Exec;
+  it("reports the routing evidence a complaint needs", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
+    const { log } = await search({ query: "comedy", area_id: "neukoelln" });
+    expect(log[0]).toMatchObject({
+      unrelaxed_count: 3, location_source: "postcode", config_state: "no_active_config",
+    });
+    expect(Array.isArray(log[0].attempts)).toBe(true);
   });
 
-  it("passes genres to the RPC and surfaces them on results", async () => {
-    rpcMock.mockResolvedValueOnce({ data: [row], error: null });
-
-    const out = await exec({ query: "hip hop", genres: ["hip-hop"] });
-
-    expect(rpcMock.mock.calls[0][1]).toMatchObject({ p_genres: ["hip-hop"] });
-    expect(out.events?.[0].genres).toEqual(["hip-hop", "r-and-b"]);
-    expect(out.note).toBeUndefined();
-  });
-
-  it("keeps genres through the first relax, drops them only as a last resort", async () => {
-    rpcMock
-      .mockResolvedValueOnce({ data: [], error: null })   // category + genres
-      .mockResolvedValueOnce({ data: [], error: null })   // genres only
-      .mockResolvedValueOnce({ data: [row], error: null }); // nothing
-
-    const out = await exec({ query: "hip hop", category: "music", genres: ["hip-hop"] });
-
-    expect(rpcMock.mock.calls[1][1]).toMatchObject({ p_category: null, p_genres: ["hip-hop"] });
-    expect(rpcMock.mock.calls[2][1]).toMatchObject({ p_category: null, p_genres: null });
-    expect(log[0]).toMatchObject({ relaxed: "drop genres" });
-    expect(out.note).toMatch(/drop genres/);
-  });
-
-  it("stops relaxing as soon as a round returns results", async () => {
+  it("surfaces the widening to the model rather than letting it guess", async () => {
+    // Needs a calibrated floor: uncalibrated correctly refuses to relax at all.
+    // The model is pinned on BOTH sides rather than read from the environment —
+    // EMBED_MODEL is set locally and empty in CI, so reading it made this test
+    // pass here and fail there, which is the environment-dependence the config
+    // check exists to catch.
+    process.env.EMBED_MODEL = "test-embed-model";
+    configMock.current = {
+      floor: 0.5, k: 3,
+      embedding_model: "test-embed-model", embedding_dim: 1536,
+    };
     rpcMock
       .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValueOnce({ data: [row], error: null });
+      .mockResolvedValue({ data: rowsOf(3), error: null });
+    const { out } = await search({ query: "comedy", area_id: "prenzlauer-berg" });
+    expect(out.meta).toMatchObject({ widened: ["area"] });
+  });
 
-    await exec({ query: "hip hop", subcategory: "party", genres: ["hip-hop"] });
+  it("labels an unknown price so the answer cannot assert it is in budget", async () => {
+    rpcMock.mockResolvedValue({
+      data: [{ id: "e1", title: "T", similarity: 0.9, price_qualifies: false, price_unknown: true }],
+      error: null,
+    });
+    const { out } = await search({ query: "comedy", max_price_cents: 1500 });
+    const events = out.events as Array<Record<string, unknown>>;
+    expect(events[0].price_note).toMatch(/do not state it as within a budget/);
+  });
 
-    expect(rpcMock).toHaveBeenCalledTimes(2);   // never reached "drop genres"
-    expect(log[0]).toMatchObject({ relaxed: "drop category/subcategory" });
+  it("says the floor is uncalibrated rather than inventing one", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(1), error: null });
+    const { out } = await search({ query: "comedy" });
+    expect(out.note).toMatch(/uncalibrated/);
+  });
+
+  it("still reports a search failure instead of pretending it was empty", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: "boom" } });
+    const { out } = await search({ query: "comedy" });
+    expect(out.error).toBeTruthy();
   });
 });

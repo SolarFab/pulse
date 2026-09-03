@@ -60,11 +60,11 @@ CURRENT TIME: ${nowBerlin} (Europe/Berlin). Resolve relative dates ("tonight", "
 ${locationLines}
 
 TOOLS:
-- search_events for any event question. Filters are strict; the free-text query only ranks within them. For a Kiez or landmark you know coordinates for, pass lat/lng/radius_km from your own knowledge; for "near me" use the user's GPS coordinates above.
+- search_events for any event question. Date, an explicit price limit and an explicit UI filter are strict. Everything else — taste words, area, venue — RANKS or is widened for you: the search relaxes location on its own, one step at a time, and tells you what it dropped. Never run a second search to widen; say what the tool reports. For a Kiez or landmark you know coordinates for, pass lat/lng/radius_km from your own knowledge; for "near me" use the user's GPS coordinates above.
 - get_event_details only when the user asks for more about one specific event.
 
 WORKED EXAMPLES (how to translate questions into tool calls):
-1. "Jazz heute Abend?" → search_events({ query: "jazz konzert", genres: ["jazz"], date_from: <today 17:00>, date_to: <tomorrow 05:00> }) — musical taste goes in genres (a curated, exact filter: EVERY event carrying that genre is eligible, which free-text ranking alone can never guarantee) AND in query (which ranks within them). Use subcategory only for an explicit format like an exhibition or club night, never for a genre.
+1. "Jazz heute Abend?" → search_events({ query: "jazz konzert", genres: ["jazz"], date_from: <today 17:00>, date_to: <tomorrow 05:00> }) — musical taste goes in genres AND in query. Both RANK — an event whose genre is untagged is still eligible and simply ranks lower. Nothing is excluded for a missing tag: 45 of 97 comedy events carry no subcategory, so gating on one hides most of the catalogue. Use subcategory only for an explicit format like an exhibition or club night, never for a genre.
 1b. "Hip Hop heute oder morgen?" → search_events({ query: "hip hop rap", genres: ["hip-hop"], date_from: <today 17:00>, date_to: <tomorrow 05:00> }). Related genres are separate slugs — if the user means the wider vibe, pass them together: genres: ["hip-hop", "r-and-b", "trap"].
 2. "Was läuft diese Woche im SchwuZ?" → search_events({ venue: "SchwuZ", date_from: <now>, date_to: <+7 days> })
 3. "Kostenlos was mit Kindern am Sonntag, gern draußen" → search_events({ query: "kinder draußen", family_friendly: true, free_entry: true, date_from: <Sunday 00:00>, date_to: <Sunday 23:59> }) — "gern draußen" is a soft preference: rank it via query, do NOT hard-filter outdoor unless the user insists.
@@ -74,7 +74,9 @@ WORKED EXAMPLES (how to translate questions into tool calls):
 GROUNDING RULES:
 - ONLY recommend events returned by your tools, each cited with its exact id in the [EVENT_ID] format below — EVERY event you mention, no exceptions. NEVER invent, remember or assume events, venues, dates, times or prices — not even famous ones you think you know.
 - NEVER name venues from memory either — no "places known for jazz" suggestions. If it's not in a tool result, it does not exist for you.
-- If a search returns nothing good: say so honestly, then try ONE relaxed search (wider dates or fewer filters) and offer those results as alternatives. Do NOT fall back to general Berlin knowledge for recommendations.
+- The search widens by itself. If it reports meta.widened, the results are NOT from the area asked for — say so plainly ("nothing in Prenzlauer Berg tonight, but three within a short ride"). If it returns nothing at all, say that; do NOT fall back to general Berlin knowledge, and do NOT re-run the search hoping for more.
+- An event marked price_note has NO known price. Never state or imply it is within a budget.
+- Prefer area_id over neighborhood when a Kiez matches one; if none does, omit it and let the search widen.
 - date_from must never be earlier than the current time above (events that already ended are gone). If a search comes back empty, widen FORWARD in time, never backward.
 - Answer-first policy: for broad but answerable questions ("Was geht heute?"), search and present a varied spread FIRST, then offer to narrow (e.g. by Kiez or vibe). Ask a clarifying question (at most one) only when the request is truly unanswerable without it.
 
@@ -157,7 +159,7 @@ const handler = async (req: NextRequest) => {
   // started before the auth check above, so this span now measures the RESIDUAL
   // wait — which is exactly the number that matters.
   const { value: taxonomy } = await step("load-taxonomy", {}, () => taxonomyPromise);
-  const { categories, subcategories, genres } = taxonomy;
+  const { categories, subcategories, genres, areas } = taxonomy;
 
   // Total latency hides the number that matters: how long until the user sees ANY
   // text. A 15s turn that starts writing at 3s is a different product from one that
@@ -172,7 +174,7 @@ const handler = async (req: NextRequest) => {
       role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
       content: String(m.content ?? ""),
     })),
-    tools: buildTools({ categories, subcategories, genres, log }),
+    tools: buildTools({ categories, subcategories, genres, areas, log }),
     stopWhen: stepCountIs(5),
     // NOTE: AI SDK v7 emits NO OpenTelemetry spans at all — `@opentelemetry` does not
     // appear anywhere in its bundle. v7 replaced OTEL with an internal telemetry

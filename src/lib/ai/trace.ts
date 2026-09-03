@@ -1,5 +1,7 @@
 import { startActiveObservation } from "@langfuse/tracing";
 
+import { safeArgs } from "./redact";
+
 type StepType = "span" | "retriever" | "embedding" | "tool";
 
 /**
@@ -32,6 +34,25 @@ export async function step<T>(
       name,
       async (span: { update: (a: Record<string, unknown>) => void }) => {
         try {
+          // Input has to be SET on the span, not merely passed at creation. It was
+          // only ever handed to startActiveObservation's options, which Langfuse
+          // does not read back — so every observation arrived with input: null.
+          // The traces recorded that a search ran and how many rows came back, and
+          // never what was searched for, which made the 2 September "comedy in
+          // Prenzlauer Berg" report undiagnosable from traces at all.
+          // Redaction happens HERE, at the boundary, not at each call site.
+          // Fixing input:null without this would have started writing every
+          // user's free text to Langfuse: the privacy contract has to be
+          // enforced where inputs enter a span, or it is only a document.
+          if (opts.input !== undefined) {
+            const raw = opts.input;
+            span.update({
+              input:
+                raw && typeof raw === "object" && !Array.isArray(raw)
+                  ? safeArgs(raw as Record<string, unknown>)
+                  : raw,
+            });
+          }
           const value = await fn();
           const ms = Date.now() - t0;
           span.update({ output: summarise(value), metadata: { duration_ms: ms } });
