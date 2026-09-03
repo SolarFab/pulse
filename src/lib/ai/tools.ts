@@ -3,6 +3,8 @@ import { z } from "zod";
 import { supabaseAnon } from "./anonClient";
 import { embedQuery } from "./embedQuery";
 import { step } from "./trace";
+import { runStaged } from "./stagedSearch";
+import { loadRetrievalConfig } from "./retrievalConfig";
 
 // The concierge's two read tools (semantic-search spec). Every param optional;
 // filters constrain (strict SQL), `query` ranks (vector-only per Experiment 2).
@@ -31,9 +33,22 @@ export type ToolLog = {
   match_ms?: number;   // time in the vector query (both round-trips if relaxed)
   degraded?: boolean;
   relaxed?: string;
+  /** Routing evidence — which rungs ran, what each returned, and why it stopped.
+   *  Without it an empty or narrow answer can only be diagnosed from the
+   *  database, which is exactly what happened on 2 September. */
+  attempts?: Array<{
+    rung: number; relaxed: string | null; location_source: string | null;
+    returned: number; qualifying: number; reason: string;
+  }>;
+  unrelaxed_count?: number;
+  location_source?: string | null;
+  config_state?: string;
 }[];
 
 export function buildTools(opts: {
+  /** Canonical area ids from the `areas` table. The model picks one of these, so
+   *  a raw location string can never become a SQL identifier. */
+  areas?: string[];
   categories: string[];
   subcategories: string[];
   genres?: string[];
@@ -62,7 +77,16 @@ export function buildTools(opts: {
       date_from: z.string().datetime({ offset: true }).optional()
         .describe("ISO start of window. Resolve relative dates yourself (system prompt has now)."),
       date_to: z.string().datetime({ offset: true }).optional(),
-      neighborhood: z.string().max(60).optional(),
+      area_id: (opts.areas?.length
+        ? z.enum(opts.areas as [string, ...string[]])
+        : z.string()
+      ).optional()
+        .describe(
+          "Canonical Kiez id — prefer this over neighborhood. If none fits, omit it; " +
+          "the search widens on its own and says so."
+        ),
+      neighborhood: z.string().max(60).optional()
+        .describe("Legacy free-text area. Use area_id when one matches."),
       venue: z.string().max(80).optional().describe("Venue name, fuzzy match."),
       family_friendly: z.boolean().optional().describe("true REQUIRES; omit = don't care."),
       outdoor: z.boolean().optional(),
@@ -110,77 +134,47 @@ export function buildTools(opts: {
           embedMs = r.ms;
           degraded = qvec === null; // embedding down -> filter-only, never broken
         }
-        const runMatch = (
-          category: string | null,
-          subcategory: string | null,
-          genreList: string[] | null
-        ) =>
-          supabaseAnon.rpc("match_events", {
-            query_embedding: qvec,
-            // lexical title boost: exact-name lookups work even for unembedded events
-            ...(args.query ? { p_query_text: args.query.slice(0, 80) } : {}),
-            p_category: category,
-            p_subcategory: subcategory,
-            p_genres: genreList,
-            ...(dateFrom ? { p_date_from: dateFrom } : {}),
-            ...(dateTo ? { p_date_to: dateTo } : {}),
-            p_neighborhood: args.neighborhood ?? null,
-            p_venue: args.venue ?? null,
-            p_family: args.family_friendly ?? false,
-            p_outdoor: args.outdoor ?? false,
-            p_free: args.free_entry ?? false,
-            p_max_price_cents: args.max_price_cents ?? null,
-            p_lat: args.lat ?? null,
-            p_lng: args.lng ?? null,
-            p_radius_km: args.radius_km ?? 1.5,
-            p_limit: args.limit ?? 10,
-          });
+        // The ladder decides what to widen and when to stop — not the model, and
+        // not a row count. `rows === 0` is what let three weak comedy results
+        // suppress relaxation on 3 September while stronger events sat one
+        // constraint away.
+        let matchMs = 0;
+        const { config, reason: configReason } = await loadRetrievalConfig();
+        const staged = await runStaged({
+          rpc: (fn, a) => supabaseAnon.rpc(fn, a) as never,
+          base: {
+            query: args.query ?? null,
+            venue: args.venue ?? null,
+            area_id: args.area_id ?? null,
+            lat: args.lat ?? null,
+            lng: args.lng ?? null,
+            radius_km: args.radius_km ?? null,
+            date_from: dateFrom ?? null,
+            date_to: dateTo ?? null,
+            max_price_cents: args.max_price_cents ?? null,
+            // Only an explicit UI selection is ever a hard taxonomy filter.
+            filter_category: null,
+            filter_subcategory: null,
+          },
+          config,
+          // Inferred taxonomy ranks. It never excludes — 45 of 97 comedy events
+          // carry no subcategory, so gating on it hides the catalogue.
+          rank: {
+            category: args.category ?? null,
+            subcategory: args.subcategory ?? null,
+            genres: args.genres?.length ? args.genres : null,
+          },
+          queryVector: qvec,
+          queryText: args.query ?? null,
+          limit: args.limit ?? 10,
+          observe: (name, input, fn) =>
+            step(name, { type: "retriever", input }, fn).then((r) => r.value),
+        });
 
-        const wantGenres = args.genres?.length ? args.genres : null;
-        const firstStep = await step("match-events",
-          { type: "retriever", input: { filtered: true, has_vector: qvec !== null,
-                                        category: args.category ?? null,
-                                        subcategory: args.subcategory ?? null,
-                                        genres: wantGenres } },
-          () => runMatch(args.category ?? null, args.subcategory ?? null, wantGenres));
-        const first = firstStep.value;
-        let matchMs = firstStep.ms;
-        const error = first.error;
-        let data = first.data;
-
-        // Sparse-taxonomy degrade (hip-hop incident): a strict filter can zero
-        // out while the ranking would have found the right events. Relax in
-        // order of trustworthiness — category/subcategory conflate six axes and
-        // are 56% empty, so they go first; genre is curated and populated only
-        // by the deterministic waterfall, so it survives one round longer and is
-        // dropped only if nothing else worked. Deterministic — prompts ask
-        // nicely, code enforces (same pattern as the date guards above).
-        const relaxSteps: Array<{ label: string; run: () => ReturnType<typeof runMatch> }> = [];
-        if (args.category || args.subcategory) {
-          relaxSteps.push({
-            label: "drop category/subcategory",
-            run: () => runMatch(null, null, wantGenres),
-          });
-        }
-        if (wantGenres) {
-          relaxSteps.push({ label: "drop genres", run: () => runMatch(null, null, null) });
-        }
-
-        let relaxed: string | undefined;
-        if (!error && (data?.length ?? 0) === 0 && args.query) {
-          for (const relaxStep of relaxSteps) {
-            const retryStep = await step("match-events-relaxed",
-              { type: "retriever", input: { filtered: false, relaxed: relaxStep.label } },
-              relaxStep.run);
-            matchMs += retryStep.ms;   // each relax costs another round-trip — show it
-            const retry = retryStep.value;
-            if (!retry.error && (retry.data?.length ?? 0) > 0) {
-              data = retry.data;
-              relaxed = relaxStep.label;
-              break;
-            }
-          }
-        }
+        const error = staged.error;
+        const data = staged.rows;
+        const relaxed = staged.relaxed.length ? staged.relaxed.join(" then ") : undefined;
+        matchMs = Date.now() - t0 - embedMs;
 
         log.push({
           tool: "search_events",
@@ -189,6 +183,13 @@ export function buildTools(opts: {
           embed_ms: embedMs,
           match_ms: matchMs,
           ms: Date.now() - t0,
+          // Routing evidence: without it a complaint about an empty or narrow
+          // answer can only be diagnosed from the database, which is exactly
+          // what happened on 2 September.
+          attempts: staged.attempts,
+          unrelaxed_count: staged.unrelaxed_count,
+          location_source: staged.attempts.at(-1)?.location_source ?? null,
+          config_state: configReason,
           ...(degraded ? { degraded } : {}),
           ...(relaxed ? { relaxed } : {}),
         });
@@ -207,26 +208,17 @@ export function buildTools(opts: {
         }
         return {
           ...(degraded ? { note: "semantic ranking unavailable; results are filter-only" } : {}),
-          ...(relaxed
-            ? {
-                note:
-                  `no exact match, so the filter was relaxed (${relaxed}) and these are ` +
-                  "ranked by meaning — say so rather than presenting them as exact hits",
-              }
-            : {}),
-          events: (data ?? []).map((e: Record<string, unknown>) => ({
-            id: e.id,
-            title: e.title,
-            venue: e.venue_name,
-            start: berlinTime(e.start_time as string),
-            category: e.category,
-            subcategory: e.subcategory,
-            ...(Array.isArray(e.genres) && e.genres.length ? { genres: e.genres } : {}),
-            price: e.price,
-            neighborhood: e.neighborhood,
-            ...(e.distance_km != null
-              ? { distance_km: Math.round((e.distance_km as number) * 10) / 10 }
-              : {}),
+          // What the ladder decided, verbatim. The model verbalises this; it does
+          // not get to decide whether the search was widened.
+          ...(staged.note ? { note: staged.note } : {}),
+          meta: {
+            widened: staged.relaxed,
+            location_source: staged.attempts.at(-1)?.location_source ?? null,
+            unrelaxed_count: staged.unrelaxed_count,
+          },
+          events: (data ?? []).map((e) => ({
+            ...e,
+            ...(e.price_unknown ? { price_note: "price unknown — do not state it as within a budget" } : {}),
           })),
         };
       },
