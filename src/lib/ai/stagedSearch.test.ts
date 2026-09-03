@@ -94,15 +94,29 @@ describe("the staged search", () => {
     expect(r.note).toMatch(/fewer than usual/);
   });
 
+  it("compares qualifying counts rather than raw row counts", async () => {
+    const weak = Array.from({ length: 10 }, (_, i) => hit(`weak-${i}`, 0.1));
+    const strong = [hit("a"), hit("b")];
+    const { result } = run([weak, strong], { area_id: "mitte" });
+    const r = await result;
+    expect(r.rows.map((x) => x.id)).toEqual(["a", "b"]);
+    expect(r.relaxed).toEqual(["area"]);
+  });
+
   it("never relaxes a hard constraint across the whole ladder", async () => {
     const { calls, result } = run([[], [], []], {
       area_id: "mitte", venue: "Tati",
       date_from: "2026-09-03T18:00:00Z", max_price_cents: 1500,
+      family_friendly: true, outdoor: true, free_entry: true, neighborhood: "Kollwitzkiez",
     });
     await result;
     for (const c of calls) {
       expect(c.p_date_from).toBe("2026-09-03T18:00:00Z");
       expect(c.p_max_price_cents).toBe(1500);
+      expect(c.p_family).toBe(true);
+      expect(c.p_outdoor).toBe(true);
+      expect(c.p_free).toBe(true);
+      expect(c.p_neighborhood).toBe("Kollwitzkiez");
     }
   });
 
@@ -133,5 +147,15 @@ describe("the staged search", () => {
       observe: async (name, _input, fn) => { seen.push(name); return fn(); },
     });
     expect(seen).toEqual(["match-events", "match-events-relaxed", "match-events-relaxed"]);
+  });
+
+  it("records auditable retrieval evidence", async () => {
+    const { result } = run([[hit("a"), hit("b"), hit("c")]]);
+    const attempt = (await result).attempts[0];
+    expect(attempt.results[0]).toEqual({ id: "a", similarity: 0.9 });
+    expect(attempt.embedding_model).toBe("m");
+    expect(attempt.embedding_dim).toBe(1536);
+    expect(attempt.constraints).toBeTruthy();
+    expect(attempt.catalogue_observed_at).toBeTruthy();
   });
 });

@@ -19,6 +19,11 @@ export type Attempt = {
   returned: number;
   qualifying: number;
   reason: string;
+  constraints: Record<string, unknown>;
+  results: Array<{ id: string; similarity: number | null }>;
+  embedding_model: string | null;
+  embedding_dim: number | null;
+  catalogue_observed_at: string;
 };
 
 export type StagedResult = {
@@ -46,6 +51,10 @@ function toRpcArgs(a: SearchArgs, extra: Record<string, unknown>): Record<string
     p_max_price_cents: a.max_price_cents ?? null,
     p_filter_category: a.filter_category ?? null,
     p_filter_subcategory: a.filter_subcategory ?? null,
+    p_neighborhood: a.neighborhood ?? null,
+    p_family: a.family_friendly ?? false,
+    p_outdoor: a.outdoor ?? false,
+    p_free: a.free_entry ?? false,
     ...extra,
   };
 }
@@ -69,6 +78,9 @@ export async function runStaged(opts: {
   const relaxed: string[] = [];
   let unrelaxedCount = 0;
   let best: RpcRow[] = [];
+  let bestQualifying = -1;
+  let bestRelaxed: string[] = [];
+  let bestRung = rungs[0];
   let lastReason = "too_few";
 
   for (const rung of rungs) {
@@ -105,11 +117,21 @@ export async function runStaged(opts: {
       returned: rows.length,
       qualifying: s.qualifying.length,
       reason: s.reason,
+      constraints: toRpcArgs(rung.args, {}),
+      results: rows.map((row) => ({ id: row.id, similarity: row.similarity })),
+      embedding_model: config?.embedding_model ?? null,
+      embedding_dim: config?.embedding_dim ?? null,
+      catalogue_observed_at: new Date().toISOString(),
     });
 
     // Keep the best set seen, so exhausting the ladder still answers with
     // something rather than the last (widest, possibly empty) attempt.
-    if (s.qualifying.length > best.length) best = rows;
+    if (s.qualifying.length > bestQualifying) {
+      best = rows;
+      bestQualifying = s.qualifying.length;
+      bestRelaxed = [...relaxed];
+      bestRung = rung;
+    }
 
     if (s.ok) {
       const last = rungs[rungs.length - 1];
@@ -125,7 +147,6 @@ export async function runStaged(opts: {
   }
 
   // Ladder exhausted.
-  const finalRung = rungs[rungs.length - 1];
   const s = sufficiency(best, config, {
     hasEmbedding: queryVector !== null,
     priceLimitStated: base.max_price_cents != null,
@@ -134,8 +155,8 @@ export async function runStaged(opts: {
     rows: best,
     attempts,
     unrelaxed_count: unrelaxedCount,
-    relaxed,
-    note: describeOutcome(finalRung, { ...s, reason: lastReason as never }, true),
+    relaxed: bestRelaxed,
+    note: describeOutcome(bestRung, { ...s, reason: lastReason as never }, true),
     error: null,
   };
 }

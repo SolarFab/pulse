@@ -73,7 +73,7 @@ export function safeArgs(args: Record<string, unknown>): Record<string, unknown>
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(args)) {
     if (FORBIDDEN.test(k)) continue;
-    if (k === "query" && typeof v === "string") {
+    if ((k === "query" || k === "p_query_text") && typeof v === "string") {
       Object.assign(out, fingerprintQuery(v));
       continue;
     }

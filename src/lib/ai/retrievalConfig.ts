@@ -4,7 +4,7 @@ import type { FloorConfig } from "./relax";
 /** Mirrors pipeline/embedder.py DEFAULT_MODELS — the model actually used when
  *  EMBED_MODEL is unset. Kept here so an absent env var cannot silently disable
  *  the check that a floor was measured in this embedding space. */
-export const DEFAULT_EMBED_MODEL = process.env.DEFAULT_EMBED_MODEL ?? "gemini-embedding-001";
+export const DEFAULT_EMBED_MODEL = "openai/text-embedding-3-small";
 
 /**
  * The one active retrieval_config row (FEAT-25, finding 3).

@@ -102,7 +102,10 @@ describe("search_events — staged retrieval", () => {
     const log: unknown[] = [];
     const tools = buildTools({
       categories: ["music", "nightlife"], subcategories: ["comedy"],
-      genres: ["hip-hop"], areas: ["prenzlauer-berg", "neukoelln"],
+      genres: ["hip-hop"], areas: [
+        { area_id: "prenzlauer-berg", centroid_lat: 52.54, centroid_lng: 13.42 },
+        { area_id: "neukoelln", centroid_lat: 52.48, centroid_lng: 13.44 },
+      ],
       log: log as never,
     });
     const exec = (tools.search_events as unknown as {
@@ -133,6 +136,27 @@ describe("search_events — staged retrieval", () => {
     rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
     await search({ query: "comedy", area_id: "prenzlauer-berg" });
     expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_area_id).toBe("prenzlauer-berg");
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_lat).toBe(52.54);
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_lng).toBe(13.42);
+  });
+
+  it("preserves explicit hard filters", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
+    await search({
+      query: "kids", family_friendly: true, outdoor: true,
+      free_entry: true, neighborhood: "Kollwitzkiez",
+    });
+    expect(rpcMock.mock.calls[0][1]).toMatchObject({
+      p_family: true, p_outdoor: true, p_free: true, p_neighborhood: "Kollwitzkiez",
+    });
+  });
+
+  it("converts search result timestamps to Berlin time", async () => {
+    rpcMock.mockResolvedValue({
+      data: [{ ...rowsOf(1)[0], start_time: "2026-09-03T18:00:00Z" }], error: null,
+    });
+    const { out } = await search({ query: "comedy" });
+    expect((out.events as Array<Record<string, unknown>>)[0].start_time).toContain("20:00");
   });
 
   it("reports the routing evidence a complaint needs", async () => {

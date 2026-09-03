@@ -33,6 +33,10 @@ export type SearchArgs = {
   max_price_cents?: number | null;
   filter_category?: string | null;
   filter_subcategory?: string | null;
+  neighborhood?: string | null;
+  family_friendly?: boolean | null;
+  outdoor?: boolean | null;
+  free_entry?: boolean | null;
 };
 
 export type Rung = {

@@ -5,6 +5,7 @@ import { embedQuery } from "./embedQuery";
 import { step } from "./trace";
 import { runStaged } from "./stagedSearch";
 import { loadRetrievalConfig } from "./retrievalConfig";
+import type { Area } from "./taxonomy";
 
 // The concierge's two read tools (semantic-search spec). Every param optional;
 // filters constrain (strict SQL), `query` ranks (vector-only per Experiment 2).
@@ -39,6 +40,11 @@ export type ToolLog = {
   attempts?: Array<{
     rung: number; relaxed: string | null; location_source: string | null;
     returned: number; qualifying: number; reason: string;
+    constraints: Record<string, unknown>;
+    results: Array<{ id: string; similarity: number | null }>;
+    embedding_model: string | null;
+    embedding_dim: number | null;
+    catalogue_observed_at: string;
   }>;
   unrelaxed_count?: number;
   location_source?: string | null;
@@ -48,13 +54,15 @@ export type ToolLog = {
 export function buildTools(opts: {
   /** Canonical area ids from the `areas` table. The model picks one of these, so
    *  a raw location string can never become a SQL identifier. */
-  areas?: string[];
+  areas?: Area[];
   categories: string[];
   subcategories: string[];
   genres?: string[];
   log: ToolLog;
 }) {
   const { categories, subcategories, genres = [], log } = opts;
+  const areaIds = opts.areas?.map((area) => area.area_id) ?? [];
+  const areaById = new Map(opts.areas?.map((area) => [area.area_id, area]) ?? []);
 
   const searchSchema = z
     .object({
@@ -77,8 +85,8 @@ export function buildTools(opts: {
       date_from: z.string().datetime({ offset: true }).optional()
         .describe("ISO start of window. Resolve relative dates yourself (system prompt has now)."),
       date_to: z.string().datetime({ offset: true }).optional(),
-      area_id: (opts.areas?.length
-        ? z.enum(opts.areas as [string, ...string[]])
+      area_id: (areaIds.length
+        ? z.enum(areaIds as [string, ...string[]])
         : z.string()
       ).optional()
         .describe(
@@ -105,7 +113,7 @@ export function buildTools(opts: {
   return {
     search_events: tool({
       description:
-        "Search Berlin events. Filters are strict; `query` only ranks within them. " +
+        "Search Berlin events. Explicit date, price, family, outdoor and free-entry constraints are strict; location may widen and meaning ranks. " +
         "Returns compact rows (no descriptions) — use get_event_details to drill in.",
       inputSchema: searchSchema,
       execute: async (args) => {
@@ -140,14 +148,15 @@ export function buildTools(opts: {
         // constraint away.
         let matchMs = 0;
         const { config, reason: configReason } = await loadRetrievalConfig();
+        const selectedArea = args.area_id ? areaById.get(args.area_id) : undefined;
         const staged = await runStaged({
           rpc: (fn, a) => supabaseAnon.rpc(fn, a) as never,
           base: {
             query: args.query ?? null,
             venue: args.venue ?? null,
             area_id: args.area_id ?? null,
-            lat: args.lat ?? null,
-            lng: args.lng ?? null,
+            lat: args.lat ?? selectedArea?.centroid_lat ?? null,
+            lng: args.lng ?? selectedArea?.centroid_lng ?? null,
             radius_km: args.radius_km ?? null,
             date_from: dateFrom ?? null,
             date_to: dateTo ?? null,
@@ -155,6 +164,10 @@ export function buildTools(opts: {
             // Only an explicit UI selection is ever a hard taxonomy filter.
             filter_category: null,
             filter_subcategory: null,
+            neighborhood: args.neighborhood ?? null,
+            family_friendly: args.family_friendly ?? false,
+            outdoor: args.outdoor ?? false,
+            free_entry: args.free_entry ?? false,
           },
           config,
           // Inferred taxonomy ranks. It never excludes — 45 of 97 comedy events
@@ -218,6 +231,8 @@ export function buildTools(opts: {
           },
           events: (data ?? []).map((e) => ({
             ...e,
+            start_time: berlinTime((e.start_time as string | null) ?? null),
+            end_time: berlinTime((e.end_time as string | null) ?? null),
             ...(e.price_unknown ? { price_note: "price unknown — do not state it as within a budget" } : {}),
           })),
         };

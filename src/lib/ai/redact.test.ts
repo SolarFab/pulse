@@ -88,6 +88,13 @@ describe("argument scrubbing", () => {
     expect(out.embedding).toBeUndefined();
   });
 
+  it("fingerprints the RPC query-text alias", () => {
+    const out = safeArgs({ p_query_text: "comedy near my home", p_area_id: "mitte" });
+    expect(out.p_query_text).toBeUndefined();
+    expect(out.query_len).toBe(19);
+    expect(out.p_area_id).toBe("mitte");
+  });
+
   it("keeps the structured arguments routing decisions are made from", () => {
     const out = safeArgs({
       area_id: "prenzlauer-berg", rung: 2, relaxed: "area",
