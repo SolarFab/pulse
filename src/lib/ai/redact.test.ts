@@ -63,11 +63,17 @@ describe("argument scrubbing", () => {
     expect(out.area_id).toBe("mitte");
   });
 
-  it("drops credentials whatever they are called", () => {
-    const out = safeArgs({ apiKey: "sk-1", token: "t", secret: "s", password: "p" });
-    expect(Object.keys(out)).not.toContain("token");
-    expect(Object.keys(out)).not.toContain("secret");
-    expect(Object.keys(out)).not.toContain("password");
+  it.each([
+    "apiKey", "api_key", "authToken", "auth_token", "token", "secret",
+    "password", "credentials", "serviceRoleKey", "email", "phone",
+  ])("drops %s — every credential-shaped name, not just the exact word", (field) => {
+    // Regression: FORBIDDEN was anchored (^key$), so apiKey and authToken passed
+    // straight through. The old test listed apiKey and never asserted on it, so it
+    // went green while leaking. Every name is now asserted individually.
+    const out = safeArgs({ [field]: "sk-live-must-not-appear", area_id: "mitte" });
+    expect(Object.keys(out)).not.toContain(field);
+    expect(JSON.stringify(out)).not.toContain("sk-live-must-not-appear");
+    expect(out.area_id).toBe("mitte");  // scrubbing must not eat the useful args
   });
 
   it("replaces a query with its fingerprint", () => {

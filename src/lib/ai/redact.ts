@@ -54,8 +54,15 @@ export function fingerprintQuery(query: string | null | undefined): QueryFingerp
   };
 }
 
-/** Fields that must never reach a span, whatever a caller passes. */
-const FORBIDDEN = /^(description|body|content|embedding|vector|token|key|secret|password|email)$/i;
+/**
+ * Fields that must never reach a span, whatever a caller passes.
+ *
+ * Matched as a SUBSTRING, not anchored. An anchored `^key$` let `apiKey` and
+ * `authToken` through untouched — and the credential test passed anyway, because
+ * it listed `apiKey` in the input and then never asserted on it. A test that
+ * looks like it covers credentials and does not is worse than no test at all.
+ */
+const FORBIDDEN = /(description|body|content|embedding|vector|token|key|secret|password|credential|auth|email|phone)/i;
 
 /**
  * Strip anything not fit for a trace: scraped descriptions (they may carry
