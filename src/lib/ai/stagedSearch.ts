@@ -6,9 +6,11 @@
  * matters more than usual here: the bug this replaces was invisible precisely
  * because nobody could see the decision, only the row count.
  */
-import { describe as describeOutcome, ladder, sufficiency, type FloorConfig, type Row, type SearchArgs } from "./relax";
+import { dedupe, describe as describeOutcome, ladder, sufficiency, type Rung, type FloorConfig, type Row, type SearchArgs } from "./relax";
 
 export type RpcRow = Row & Record<string, unknown>;
+export const WIDER_HINT_BELOW = 5;
+
 export type Rpc = (fn: string, args: Record<string, unknown>) => Promise<{ data: RpcRow[] | null; error: unknown }>;
 
 export type Attempt = {
@@ -26,6 +28,14 @@ export type Attempt = {
   catalogue_observed_at: string;
 };
 
+/** What exists beyond the constraint the user set, when they set one.
+ *
+ *  Answering "one in Prenzlauer Berg" without saying "twelve in Berlin tonight"
+ *  is technically true and practically useless: the asker cannot tell whether
+ *  the night is quiet or their question was narrow. The ladder already knows how
+ *  to widen, so one extra call turns a dead end into a choice. */
+export type Wider = { count: number; sample: RpcRow[]; relaxed: string[] };
+
 export type StagedResult = {
   rows: RpcRow[];
   /** Every attempt, in order — the trace and the answer both need the whole path. */
@@ -35,6 +45,8 @@ export type StagedResult = {
   unrelaxed_count: number;
   relaxed: string[];
   note: string | null;
+  /** Present when a location constraint was set and the local answer was thin. */
+  wider: Wider | null;
   error: unknown;
 };
 
@@ -98,7 +110,8 @@ export async function runStaged(opts: {
       { rung: rung.index, relaxed: rung.relaxed, ...args },
       () => rpc("match_events_v2", args)
     );
-    if (res.error) return { rows: [], attempts, unrelaxed_count: 0, relaxed, note: null, error: res.error };
+    if (res.error)
+      return { rows: [], attempts, unrelaxed_count: 0, relaxed, note: null, wider: null, error: res.error };
 
     const rows = res.data ?? [];
     const s = sufficiency(rows, config, {
@@ -135,12 +148,21 @@ export async function runStaged(opts: {
 
     if (s.ok) {
       const last = rungs[rungs.length - 1];
+      // Answered without widening, but thinly, and a location was asked for: find
+      // out what the rest of the city holds so the answer can offer it rather
+      // than leaving the asker to guess whether tonight is quiet.
+      const thin = s.qualifying.length < WIDER_HINT_BELOW;
+      const wider =
+        rung.relaxed === null && thin && rungs.length > 1
+          ? await probeWider(rungs[rungs.length - 1], rung, rows)
+          : null;
       return {
         rows,
         attempts,
         unrelaxed_count: unrelaxedCount,
         relaxed: [...relaxed],
         note: describeOutcome(rung, s, rung.index === last.index),
+        wider,
         error: null,
       };
     }
@@ -157,6 +179,35 @@ export async function runStaged(opts: {
     unrelaxed_count: unrelaxedCount,
     relaxed: bestRelaxed,
     note: describeOutcome(bestRung, { ...s, reason: lastReason as never }, true),
+    wider: null, // the ladder already widened; there is no "beyond" left to offer
     error: null,
   };
+
+  /** One extra call at the widest rung, for a count and a couple of examples.
+   *
+   *  Its rows are NOT substituted for the local ones. They are alternatives, and
+   *  presenting them as answers is how "nothing nearby" turns into "here is the
+   *  rest of Berlin" with nobody told the question was changed. */
+  async function probeWider(widest: Rung, from: Rung, local: RpcRow[]): Promise<Wider | null> {
+    const args = toRpcArgs(widest.args, {
+      query_embedding: queryVector,
+      ...(queryText ? { p_query_text: queryText.slice(0, 80) } : {}),
+      p_rank_category: rank.category ?? null,
+      p_rank_subcategory: rank.subcategory ?? null,
+      p_rank_genres: rank.genres?.length ? rank.genres : null,
+      p_limit: 20,
+    });
+    const res = await observe("match-events-wider", { probe: true, ...args }, () =>
+      rpc("match_events_v2", args),
+    );
+    if (res.error || !res.data) return null;
+    const localIds = new Set(local.map((r) => r.id));
+    const extra = dedupe(res.data).filter((r) => !localIds.has(r.id));
+    if (extra.length === 0) return null;
+    return {
+      count: extra.length,
+      sample: extra.slice(0, 3),
+      relaxed: widest.args.area_id === from.args.area_id ? ["radius"] : ["area"],
+    };
+  }
 }

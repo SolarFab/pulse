@@ -46,9 +46,36 @@ describe("the staged search", () => {
   it("does not relax when the first rung is good enough", async () => {
     const { calls, result } = run([[hit("a"), hit("b"), hit("c")]], { area_id: "prenzlauer-berg" });
     const r = await result;
-    expect(calls).toHaveLength(1);
-    expect(r.relaxed).toEqual([]);
+    expect(r.relaxed).toEqual([]);      // the ANSWER is local
     expect(r.note).toBeNull();
+    // A second call may still happen: a thin local answer probes what exists
+    // wider, so it can be OFFERED. That is not relaxation — the rows returned
+    // are still the local ones.
+    expect(calls[0].p_area_id).toBe("prenzlauer-berg");
+    expect(r.rows.map((x) => x.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("offers what exists wider instead of leaving a thin answer looking like the whole night", async () => {
+    // "One in Prenzlauer Berg" without "twelve in Berlin tonight" is true and
+    // useless: the asker cannot tell if the night is quiet or their question was.
+    const local = [hit("local1")];
+    const citywide = [hit("local1"), hit("w1"), hit("w2"), hit("w3"), hit("w4")];
+    const { result } = run([local, citywide], { area_id: "prenzlauer-berg" }, {
+      config: { floor: 0.5, k: 1, embedding_model: "m", embedding_dim: 1536 },
+    });
+    const r = await result;
+    expect(r.rows.map((x) => x.id)).toEqual(["local1"]);   // local answer preserved
+    expect(r.relaxed).toEqual([]);                          // nothing was relaxed
+    expect(r.wider?.count).toBe(4);                         // and four more exist
+    expect(r.wider?.sample.map((x) => x.id)).toEqual(["w1", "w2", "w3"]);
+  });
+
+  it("does not offer alternatives that are already in the local answer", async () => {
+    const local = [hit("a")];
+    const { result } = run([local, [hit("a")]], { area_id: "mitte" }, {
+      config: { floor: 0.5, k: 1, embedding_model: "m", embedding_dim: 1536 },
+    });
+    expect((await result).wider).toBeNull();
   });
 
   it("relaxes on weak results — the 3 September bug", async () => {
@@ -134,10 +161,13 @@ describe("the staged search", () => {
     expect(r.note).toMatch(/uncalibrated/);
   });
 
-  it("stops at rung 0 when uncalibrated but the results are plentiful", async () => {
-    const { calls } = run([[hit("a"), hit("b"), hit("c")]], { area_id: "mitte" }, { config: null });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(calls.length).toBeLessThanOrEqual(1);
+  it("answers locally when uncalibrated and the results are plentiful", async () => {
+    const many = ["a", "b", "c", "d", "e", "f"].map((id) => hit(id));
+    const { result } = run([many], { area_id: "mitte" }, { config: null });
+    const r = await result;
+    expect(r.relaxed).toEqual([]);
+    expect(r.rows).toHaveLength(6);
+    expect(r.wider).toBeNull();   // six is not thin; nothing to offer beyond it
   });
 
   it("surfaces an RPC error instead of silently relaxing past it", async () => {

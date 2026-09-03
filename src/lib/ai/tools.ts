@@ -224,6 +224,18 @@ export function buildTools(opts: {
           // What the ladder decided, verbatim. The model verbalises this; it does
           // not get to decide whether the search was widened.
           ...(staged.note ? { note: staged.note } : {}),
+          ...(staged.wider
+            ? {
+                wider: {
+                  count: staged.wider.count,
+                  beyond: staged.wider.relaxed.join(" and "),
+                  examples: staged.wider.sample.map((e) => ({
+                    id: e.id, title: e.title, venue_name: e.venue_name,
+                    start_time: e.start_time, distance_km: e.distance_km,
+                  })),
+                },
+              }
+            : {}),
           meta: {
             widened: staged.relaxed,
             location_source: staged.attempts.at(-1)?.location_source ?? null,
