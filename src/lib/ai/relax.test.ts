@@ -109,10 +109,26 @@ group("sufficiency", () => {
     expect(sufficiency(rows, cfg, withVec).ok).toBe(true);
   });
 
-  it("fails closed with no calibrated floor", () => {
+  it("without a floor, falls back to a count rather than stopping dead", () => {
+    // Behaviour change, from a live failure: stopping at rung 0 made an
+    // over-constrained first attempt final. A search narrowed to one Kiez
+    // returned ten mediocre results and never widened — the same "it found
+    // something, so it stopped" bug in a new costume.
     const s = sufficiency([row({ id: "a" })], null, withVec);
     expect(s.reason).toBe("uncalibrated");
-    expect(s.ok).toBe(true); // stop, do not relax against a floor we do not have
+    expect(s.ok).toBe(false);   // one result is not enough; keep widening
+  });
+
+  it("without a floor, k results still end the search", () => {
+    const three = ["a", "b", "c"].map((id) => row({ id }));
+    expect(sufficiency(three, null, withVec)).toMatchObject({ ok: true, reason: "uncalibrated" });
+  });
+
+  it("still refuses to invent a floor", () => {
+    // The point of failing closed survives: a weak result never PASSES a
+    // threshold, because no threshold is applied at all.
+    const weakButMany = ["a", "b", "c"].map((id) => row({ id, similarity: 0.01 }));
+    expect(sufficiency(weakButMany, null, withVec).reason).toBe("uncalibrated");
   });
 });
 

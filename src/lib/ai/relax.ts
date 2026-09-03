@@ -63,6 +63,10 @@ export type FloorConfig = {
   embedding_dim: number;
 } | null;
 
+/** How many results end an uncalibrated search. Deliberately the same as the
+ *  usual default: without a floor, count is all we have. */
+export const UNCALIBRATED_K = 3;
+
 export type Sufficiency = {
   ok: boolean;
   /** Rows that count toward k, after dedup and price filtering. */
@@ -141,10 +145,16 @@ export function sufficiency(
     ? distinct.filter((r) => r.price_qualifies && !r.price_unknown)
     : distinct;
 
-  // Fail closed: with no calibrated floor we do not guess one. The search runs
-  // unrelaxed and says so, rather than silently applying a number from a
-  // different embedding model.
-  if (!cfg) return { ok: true, qualifying: eligible, reason: "uncalibrated" };
+  // No calibrated floor: we still refuse to invent one, but stopping dead at rung
+  // 0 was wrong. It made an over-constrained first attempt final — a search
+  // narrowed to one Kiez returned ten mediocre results and never widened, which
+  // is the same "it found something, so it stopped" failure in a new costume.
+  // Fall back to a COUNT, which is honest about being weaker, and keep widening.
+  if (!cfg) {
+    return eligible.length >= UNCALIBRATED_K
+      ? { ok: true, qualifying: eligible, reason: "uncalibrated" }
+      : { ok: false, qualifying: eligible, reason: "uncalibrated" };
+  }
 
   if (!opts.hasEmbedding) {
     return eligible.length >= cfg.k

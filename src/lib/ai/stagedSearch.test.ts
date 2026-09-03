@@ -120,11 +120,24 @@ describe("the staged search", () => {
     }
   });
 
-  it("stops without relaxing when no floor is calibrated", async () => {
-    const { calls, result } = run([[hit("a", 0.01)]], { area_id: "mitte" }, { config: null });
+  it("still widens when no floor is calibrated — a thin rung 0 is not final", async () => {
+    // The live failure: "comedy tonight" was narrowed to one Kiez by GPS, rung 0
+    // returned results, and with no calibrated config the search stopped there.
+    const { calls, result } = run(
+      [[hit("a", 0.01)], [hit("x"), hit("y"), hit("z")]],
+      { area_id: "prenzlauer-berg" },
+      { config: null },
+    );
     const r = await result;
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].p_area_id).toBeNull();
     expect(r.note).toMatch(/uncalibrated/);
+  });
+
+  it("stops at rung 0 when uncalibrated but the results are plentiful", async () => {
+    const { calls } = run([[hit("a"), hit("b"), hit("c")]], { area_id: "mitte" }, { config: null });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.length).toBeLessThanOrEqual(1);
   });
 
   it("surfaces an RPC error instead of silently relaxing past it", async () => {
