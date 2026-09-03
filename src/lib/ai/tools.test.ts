@@ -88,6 +88,7 @@ describe("search_events — staged retrieval", () => {
   beforeEach(() => {
     rpcMock.mockReset();
     configMock.current = null;
+    delete process.env.EMBED_MODEL;
   });
 
   const rowsOf = (n: number, sim = 0.9) =>
@@ -144,10 +145,15 @@ describe("search_events — staged retrieval", () => {
   });
 
   it("surfaces the widening to the model rather than letting it guess", async () => {
-    // needs a calibrated floor: uncalibrated correctly refuses to relax at all
+    // Needs a calibrated floor: uncalibrated correctly refuses to relax at all.
+    // The model is pinned on BOTH sides rather than read from the environment —
+    // EMBED_MODEL is set locally and empty in CI, so reading it made this test
+    // pass here and fail there, which is the environment-dependence the config
+    // check exists to catch.
+    process.env.EMBED_MODEL = "test-embed-model";
     configMock.current = {
       floor: 0.5, k: 3,
-      embedding_model: process.env.EMBED_MODEL ?? "", embedding_dim: 1536,
+      embedding_model: "test-embed-model", embedding_dim: 1536,
     };
     rpcMock
       .mockResolvedValueOnce({ data: [], error: null })
