@@ -1,6 +1,11 @@
 import { supabaseAnon } from "./anonClient";
 import type { FloorConfig } from "./relax";
 
+/** Mirrors pipeline/embedder.py DEFAULT_MODELS — the model actually used when
+ *  EMBED_MODEL is unset. Kept here so an absent env var cannot silently disable
+ *  the check that a floor was measured in this embedding space. */
+export const DEFAULT_EMBED_MODEL = process.env.DEFAULT_EMBED_MODEL ?? "gemini-embedding-001";
+
 /**
  * The one active retrieval_config row (FEAT-25, finding 3).
  *
@@ -14,7 +19,11 @@ import type { FloorConfig } from "./relax";
  * calibrated yet, so we do not pretend to know what "relevant" means.
  */
 export async function loadRetrievalConfig(): Promise<{ config: FloorConfig; reason: string }> {
-  const model = process.env.EMBED_MODEL ?? "";
+  // The same concrete default the pipeline's get_embedder() falls back to. An
+  // absent env var previously SKIPPED model validation entirely, so a floor
+  // measured under a different embedding space would have been used as though it
+  // meant something — the exact failure the versioning exists to prevent.
+  const model = process.env.EMBED_MODEL || DEFAULT_EMBED_MODEL;
   const dim = Number(process.env.EMBED_DIM ?? 1536);
 
   const { data, error } = await supabaseAnon
@@ -24,8 +33,8 @@ export async function loadRetrievalConfig(): Promise<{ config: FloorConfig; reas
     .maybeSingle();
 
   if (error || !data) return { config: null, reason: "no_active_config" };
-  if (model && data.embedding_model !== model)
-    return { config: null, reason: "model_mismatch" };
+  // No `model &&` guard: an unresolvable model must fail closed, not opt out.
+  if (data.embedding_model !== model) return { config: null, reason: "model_mismatch" };
   if (data.embedding_dim !== dim) return { config: null, reason: "dimension_mismatch" };
 
   return {
