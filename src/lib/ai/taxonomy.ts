@@ -38,6 +38,7 @@ export async function getTaxonomy(): Promise<Taxonomy> {
   const areas = (areaRows ?? [])
     .map((r) => ({
       area_id: r.area_id as string,
+      name: r.name as string,
       centroid_lat: r.centroid_lat == null ? null : Number(r.centroid_lat),
       centroid_lng: r.centroid_lng == null ? null : Number(r.centroid_lng),
     }))
