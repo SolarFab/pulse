@@ -136,7 +136,6 @@ function PinDropMap({ onLocationChange }: { onLocationChange: (lat: number, lng:
 
     async function initMap() {
       const maplibregl = (await import("maplibre-gl")).default;
-      // @ts-expect-error -- CSS import handled by bundler
       await import("maplibre-gl/dist/maplibre-gl.css");
 
       if (cancelled || !mapContainer.current) return;
