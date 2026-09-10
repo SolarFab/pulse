@@ -4,6 +4,7 @@ import { supabaseAnon } from "./anonClient";
 import { embedQuery } from "./embedQuery";
 import { step } from "./trace";
 import { partition, present, priceEligible, type Row } from "./partition";
+import { resolveWhen, WHEN } from "./when";
 import type { Area } from "./taxonomy";
 
 // Retrieval breadth — unrelated to how many the user sees. Measured: latency is
@@ -72,6 +73,10 @@ export function buildTools(opts: {
         .max(5)
         .optional()
         .describe("Canonical genre slugs; an event matching ANY of them qualifies."),
+      when: z.enum(WHEN).optional()
+        .describe("A relative time word: now | tonight | today | tomorrow | weekend | week. " +
+                  "ALWAYS use this for relative phrases; code resolves it in Berlin time. " +
+                  "Only use date_from/date_to for an explicit date the user named."),
       date_from: z.string().datetime({ offset: true }).optional()
         .describe("ISO start of window. Resolve relative dates yourself (system prompt has now)."),
       date_to: z.string().datetime({ offset: true }).optional(),
@@ -114,8 +119,12 @@ export function buildTools(opts: {
         // and a window that ends before it starts falls back to defaults.
         const graceMs = 6 * 3600_000; // "jetzt" queries may include just-started events
         const floor = Date.now() - graceMs;
-        let dateFrom = args.date_from;
-        let dateTo = args.date_to;
+        // A relative word wins over model-written ISO. "Jazz tonight?" at 19:30
+        // Berlin once became p_date_from 19:30:00Z — the wall-clock with a Z —
+        // and excluded six of seven jazz events that had just started.
+        const resolved = args.when ? resolveWhen(args.when) : null;
+        let dateFrom = resolved?.from ?? args.date_from;
+        let dateTo = resolved?.to ?? args.date_to;
         if (dateFrom && Date.parse(dateFrom) < floor) dateFrom = new Date(floor).toISOString();
         if (dateTo && dateFrom && Date.parse(dateTo) <= Date.parse(dateFrom)) dateTo = undefined;
         if (dateTo && Date.parse(dateTo) < floor) dateTo = undefined;

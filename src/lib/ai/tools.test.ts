@@ -166,6 +166,17 @@ describe("search_events — retrieve wide, show narrow", () => {
     expect(log[0].counts).toMatchObject({ total: 4 });
   });
 
+  it("a relative word overrides a model-written window — the jazz-tonight bug", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(2), error: null });
+    // The model wrote Berlin wall-clock with a Z: two hours in the future.
+    await search({ query: "jazz", when: "tonight", date_from: "2026-09-10T19:30:00Z" });
+    const a = rpcMock.mock.calls[0][1] as Record<string, unknown>;
+    const from = Date.parse(a.p_date_from as string);
+    // resolved "tonight" starts at 17:00 Berlin: strictly earlier than the bogus 19:30Z
+    expect(from).toBeLessThan(Date.parse("2026-09-10T19:30:00Z"));
+    expect(new Date(from).toISOString()).toMatch(/T15:00:00\.000Z$|T16:00:00\.000Z$/);
+  });
+
   it("still reports a search failure instead of pretending it was empty", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { message: "boom" } });
     const { out } = await search({ query: "comedy" });
