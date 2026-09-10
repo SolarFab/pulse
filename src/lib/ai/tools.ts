@@ -3,9 +3,13 @@ import { z } from "zod";
 import { supabaseAnon } from "./anonClient";
 import { embedQuery } from "./embedQuery";
 import { step } from "./trace";
-import { runStaged } from "./stagedSearch";
-import { loadRetrievalConfig } from "./retrievalConfig";
+import { partition, present, priceEligible, type Row } from "./partition";
+import { resolveWhen, WHEN } from "./when";
 import type { Area } from "./taxonomy";
+
+// Retrieval breadth — unrelated to how many the user sees. Measured: latency is
+// flat in the limit (~474 bytes/row); the vector scan is paid regardless.
+const RETRIEVAL_BREADTH = 100;
 
 // The concierge's two read tools (semantic-search spec). Every param optional;
 // filters constrain (strict SQL), `query` ranks (vector-only per Experiment 2).
@@ -33,22 +37,9 @@ export type ToolLog = {
   embed_ms?: number;   // time in the embedding API
   match_ms?: number;   // time in the vector query (both round-trips if relaxed)
   degraded?: boolean;
-  relaxed?: string;
-  /** Routing evidence — which rungs ran, what each returned, and why it stopped.
-   *  Without it an empty or narrow answer can only be diagnosed from the
-   *  database, which is exactly what happened on 2 September. */
-  attempts?: Array<{
-    rung: number; relaxed: string | null; location_source: string | null;
-    returned: number; qualifying: number; reason: string;
-    constraints: Record<string, unknown>;
-    results: Array<{ id: string; similarity: number | null }>;
-    embedding_model: string | null;
-    embedding_dim: number | null;
-    catalogue_observed_at: string;
-  }>;
-  unrelaxed_count?: number;
-  location_source?: string | null;
-  config_state?: string;
+  /** What was found and where, so an empty or narrow answer can be diagnosed
+   *  from the log rather than from the database. */
+  counts?: { in_area: number; nearby: number; elsewhere: number; total: number };
 }[];
 
 export function buildTools(opts: {
@@ -82,6 +73,10 @@ export function buildTools(opts: {
         .max(5)
         .optional()
         .describe("Canonical genre slugs; an event matching ANY of them qualifies."),
+      when: z.enum(WHEN).optional()
+        .describe("A relative time word: now | tonight | today | tomorrow | weekend | week. " +
+                  "ALWAYS use this for relative phrases; code resolves it in Berlin time. " +
+                  "Only use date_from/date_to for an explicit date the user named."),
       date_from: z.string().datetime({ offset: true }).optional()
         .describe("ISO start of window. Resolve relative dates yourself (system prompt has now)."),
       date_to: z.string().datetime({ offset: true }).optional(),
@@ -104,7 +99,8 @@ export function buildTools(opts: {
         .describe("With lng+radius_km: geo filter. From your knowledge or user location only."),
       lng: z.number().min(13.0).max(13.8).optional(),
       radius_km: z.number().min(0.2).max(10).optional(),
-      limit: z.number().int().min(1).max(20).optional(),
+      limit: z.number().int().min(1).max(10).optional()
+        .describe("How many events to SHOW (default 5). Retrieval is always broad; this is presentation."),
     })
     .refine((a) => (a.lat === undefined) === (a.lng === undefined), {
       message: "lat and lng must be provided together",
@@ -123,8 +119,12 @@ export function buildTools(opts: {
         // and a window that ends before it starts falls back to defaults.
         const graceMs = 6 * 3600_000; // "jetzt" queries may include just-started events
         const floor = Date.now() - graceMs;
-        let dateFrom = args.date_from;
-        let dateTo = args.date_to;
+        // A relative word wins over model-written ISO. "Jazz tonight?" at 19:30
+        // Berlin once became p_date_from 19:30:00Z — the wall-clock with a Z —
+        // and excluded six of seven jazz events that had just started.
+        const resolved = args.when ? resolveWhen(args.when) : null;
+        let dateFrom = resolved?.from ?? args.date_from;
+        let dateTo = resolved?.to ?? args.date_to;
         if (dateFrom && Date.parse(dateFrom) < floor) dateFrom = new Date(floor).toISOString();
         if (dateTo && dateFrom && Date.parse(dateTo) <= Date.parse(dateFrom)) dateTo = undefined;
         if (dateTo && Date.parse(dateTo) < floor) dateTo = undefined;
@@ -142,72 +142,62 @@ export function buildTools(opts: {
           embedMs = r.ms;
           degraded = qvec === null; // embedding down -> filter-only, never broken
         }
-        // The ladder decides what to widen and when to stop — not the model, and
-        // not a row count. `rows === 0` is what let three weak comedy results
-        // suppress relaxation on 3 September while stronger events sat one
-        // constraint away.
-        let matchMs = 0;
-        const { config, reason: configReason } = await loadRetrievalConfig();
+        // Retrieve wide, rank in code, show narrow. One query for the whole date
+        // window (~400 rows tonight), ranked by similarity and ANNOTATED with
+        // location evidence — nothing excluded on location. Every exclusion in
+        // SQL was a way to lose Cosmic Comedy; a plain "comedy tonight" ranks it
+        // fifth. Inferred taxonomy ranks too, never gates: 45 of 97 comedy
+        // events carry no subcategory.
         const selectedArea = args.area_id ? areaById.get(args.area_id) : undefined;
-        const staged = await runStaged({
-          rpc: (fn, a) => supabaseAnon.rpc(fn, a) as never,
-          base: {
-            query: args.query ?? null,
-            venue: args.venue ?? null,
-            area_id: args.area_id ?? null,
-            lat: args.lat ?? selectedArea?.centroid_lat ?? null,
-            lng: args.lng ?? selectedArea?.centroid_lng ?? null,
-            radius_km: args.radius_km ?? null,
-            date_from: dateFrom ?? null,
-            date_to: dateTo ?? null,
-            max_price_cents: args.max_price_cents ?? null,
-            // Only an explicit UI selection is ever a hard taxonomy filter.
-            filter_category: null,
-            filter_subcategory: null,
-            neighborhood: args.neighborhood ?? null,
-            family_friendly: args.family_friendly ?? false,
-            outdoor: args.outdoor ?? false,
-            free_entry: args.free_entry ?? false,
-          },
-          config,
-          // Inferred taxonomy ranks. It never excludes — 45 of 97 comedy events
-          // carry no subcategory, so gating on it hides the catalogue.
-          rank: {
-            category: args.category ?? null,
-            subcategory: args.subcategory ?? null,
-            genres: args.genres?.length ? args.genres : null,
-          },
-          queryVector: qvec,
-          queryText: args.query ?? null,
-          limit: args.limit ?? 10,
-          observe: (name, input, fn) =>
-            step(name, { type: "retriever", input }, fn).then((r) => r.value),
-        });
+        const rpcArgs = {
+          query_embedding: qvec,
+          ...(args.query ? { p_query_text: args.query.slice(0, 80) } : {}),
+          p_rank_category: args.category ?? null,
+          p_rank_subcategory: args.subcategory ?? null,
+          p_rank_genres: args.genres?.length ? args.genres : null,
+          p_filter_category: null,
+          p_filter_subcategory: null,
+          p_area_id: args.area_id ?? null,
+          ...(dateFrom ? { p_date_from: dateFrom } : {}),
+          ...(dateTo ? { p_date_to: dateTo } : {}),
+          p_neighborhood: args.neighborhood ?? null,
+          p_venue: args.venue ?? null,
+          p_family: args.family_friendly ?? false,
+          p_outdoor: args.outdoor ?? false,
+          p_free: args.free_entry ?? false,
+          p_max_price_cents: args.max_price_cents ?? null,
+          p_lat: args.lat ?? selectedArea?.centroid_lat ?? null,
+          p_lng: args.lng ?? selectedArea?.centroid_lng ?? null,
+          ...(args.radius_km != null ? { p_radius_km: args.radius_km } : {}),
+          p_limit: RETRIEVAL_BREADTH,
+        };
+        const matchStep = await step("match-events", { type: "retriever", input: rpcArgs },
+          () => supabaseAnon.rpc("match_events_v2", rpcArgs));
+        const matchMs = matchStep.ms;
+        const error = matchStep.value.error;
+        const rows = ((matchStep.value.data ?? []) as Row[]);
 
-        const error = staged.error;
-        const data = staged.rows;
-        const relaxed = staged.relaxed.length ? staged.relaxed.join(" then ") : undefined;
-        matchMs = Date.now() - t0 - embedMs;
+        const areaAsked = !!args.area_id;
+        const eligible = priceEligible(rows, args.max_price_cents != null);
+        const groups = partition(eligible, { areaAsked });
+        const shown = present(groups, {
+          areaAsked,
+          areaName: selectedArea?.name ?? args.area_id ?? null,
+          show: args.limit ?? 5,
+        });
 
         log.push({
           tool: "search_events",
           args: { ...args, query: args.query?.slice(0, 60) },
-          results: data?.length ?? 0,
+          results: rows.length,
           embed_ms: embedMs,
           match_ms: matchMs,
           ms: Date.now() - t0,
-          // Routing evidence: without it a complaint about an empty or narrow
-          // answer can only be diagnosed from the database, which is exactly
-          // what happened on 2 September.
-          attempts: staged.attempts,
-          unrelaxed_count: staged.unrelaxed_count,
-          location_source: staged.attempts.at(-1)?.location_source ?? null,
-          config_state: configReason,
+          counts: shown.counts,
           ...(degraded ? { degraded } : {}),
-          ...(relaxed ? { relaxed } : {}),
         });
         if (error) return { error: "search failed — apologise briefly and suggest retrying" };
-        if (!relaxed && (data?.length ?? 0) === 0 && (args.query || args.venue)) {
+        if (rows.length === 0 && (args.query || args.venue)) {
           // Demand queue: a zero-result search is the purest signal of what users
           // want and we lack — the discovery agent scouts these first. Fire-and-
           // forget; logging must never delay or break the answer.
@@ -219,22 +209,21 @@ export function buildTools(opts: {
             })
             .then(undefined, () => {});
         }
+        const shape = (e: Row) => ({
+          ...e,
+          start_time: berlinTime((e.start_time as string | null) ?? null),
+          end_time: berlinTime((e.end_time as string | null) ?? null),
+          ...(e.price_unknown ? { price_note: "price unknown — do not state it as within a budget" } : {}),
+        });
         return {
-          ...(degraded ? { note: "semantic ranking unavailable; results are filter-only" } : {}),
-          // What the ladder decided, verbatim. The model verbalises this; it does
-          // not get to decide whether the search was widened.
-          ...(staged.note ? { note: staged.note } : {}),
-          meta: {
-            widened: staged.relaxed,
-            location_source: staged.attempts.at(-1)?.location_source ?? null,
-            unrelaxed_count: staged.unrelaxed_count,
-          },
-          events: (data ?? []).map((e) => ({
-            ...e,
-            start_time: berlinTime((e.start_time as string | null) ?? null),
-            end_time: berlinTime((e.end_time as string | null) ?? null),
-            ...(e.price_unknown ? { price_note: "price unknown — do not state it as within a budget" } : {}),
-          })),
+          ...(degraded ? { degraded_note: "semantic ranking unavailable; results are filter-only" } : {}),
+          // What the code decided, verbatim. The model verbalises it; it does not
+          // decide what counts as local or how many exist beyond.
+          ...(shown.note ? { note: shown.note } : {}),
+          counts: shown.counts,
+          events: shown.events.map(shape),
+          // Alternatives beyond the answer. OFFER these; do not list them as matches.
+          ...(shown.offers.length ? { offers: shown.offers.map(shape) } : {}),
         };
       },
     }),

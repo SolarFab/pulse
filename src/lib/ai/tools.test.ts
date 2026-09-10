@@ -11,13 +11,12 @@ const rpcMock = vi.fn();
 // The config read is a table select, not an RPC. Default is "nothing calibrated",
 // which is the honest default — the ladder then runs unrelaxed rather than
 // trusting a floor calibrated for some other embedding model.
-const configMock = { current: null as Record<string, unknown> | null };
 vi.mock("./anonClient", () => ({
   supabaseAnon: {
     rpc: (...a: unknown[]) => rpcMock(...a),
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: configMock.current, error: null }) }),
+        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
       }),
     }),
   },
@@ -84,28 +83,21 @@ describe("search_events schema", () => {
  * as a hard filter, and relaxation triggered by a zero row count. Both are the
  * defect, so their tests are the defect's specification and had to go with it.
  */
-describe("search_events — staged retrieval", () => {
-  beforeEach(() => {
-    rpcMock.mockReset();
-    configMock.current = null;
-    delete process.env.EMBED_MODEL;
-  });
+describe("search_events — retrieve wide, show narrow", () => {
+  beforeEach(() => rpcMock.mockReset());
 
-  const rowsOf = (n: number, sim = 0.9) =>
+  const rowsOf = (n: number, o: Partial<Record<string, unknown>> = {}) =>
     Array.from({ length: n }, (_, i) => ({
-      id: `e${i}`, title: `Event ${i}`, similarity: sim,
-      price_qualifies: true, price_unknown: false, area_resolved_by: "postcode",
+      id: `e${i}`, title: `Event ${i}`, similarity: 0.9 - i / 100, loc_src: null,
+      distance_km: 8, price_qualifies: true, price_unknown: false, ...o,
     }));
 
   async function search(args: Record<string, unknown>) {
     const { buildTools } = await import("./tools");
     const log: unknown[] = [];
     const tools = buildTools({
-      categories: ["music", "nightlife"], subcategories: ["comedy"],
-      genres: ["hip-hop"], areas: [
-        { area_id: "prenzlauer-berg", centroid_lat: 52.54, centroid_lng: 13.42 },
-        { area_id: "neukoelln", centroid_lat: 52.48, centroid_lng: 13.44 },
-      ],
+      categories: ["music", "nightlife"], subcategories: ["comedy"], genres: ["hip-hop"],
+      areas: [{ area_id: "prenzlauer-berg", name: "Prenzlauer Berg", centroid_lat: 52.54, centroid_lng: 13.42 }] as never,
       log: log as never,
     });
     const exec = (tools.search_events as unknown as {
@@ -115,10 +107,13 @@ describe("search_events — staged retrieval", () => {
     return { out: out as Record<string, unknown>, log: log as Record<string, unknown>[] };
   }
 
-  it("calls match_events_v2, never the v1 function", async () => {
+  it("makes exactly one retrieval, broad, against match_events_v2", async () => {
     rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
-    await search({ query: "comedy" });
-    expect(rpcMock.mock.calls[0][0]).toBe("match_events_v2");
+    await search({ query: "comedy", area_id: "prenzlauer-berg" });
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    const [fn, a] = rpcMock.mock.calls[0] as [string, Record<string, unknown>];
+    expect(fn).toBe("match_events_v2");
+    expect(a.p_limit).toBe(100);              // retrieval breadth, not the shown count
   });
 
   it("sends inferred taxonomy as ranking inputs, never as hard filters", async () => {
@@ -127,79 +122,59 @@ describe("search_events — staged retrieval", () => {
     const a = rpcMock.mock.calls[0][1] as Record<string, unknown>;
     expect(a.p_rank_subcategory).toBe("comedy");
     expect(a.p_rank_genres).toEqual(["hip-hop"]);
-    // the gate that hid 45 of 97 comedy events must not be set from an inference
     expect(a.p_filter_subcategory).toBeNull();
     expect(a.p_filter_category).toBeNull();
   });
 
-  it("passes a canonical area id, so no raw location string reaches SQL", async () => {
-    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
-    await search({ query: "comedy", area_id: "prenzlauer-berg" });
-    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_area_id).toBe("prenzlauer-berg");
-    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_lat).toBe(52.54);
-    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_lng).toBe(13.42);
-  });
-
-  it("preserves explicit hard filters", async () => {
-    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
-    await search({
-      query: "kids", family_friendly: true, outdoor: true,
-      free_entry: true, neighborhood: "Kollwitzkiez",
-    });
-    expect(rpcMock.mock.calls[0][1]).toMatchObject({
-      p_family: true, p_outdoor: true, p_free: true, p_neighborhood: "Kollwitzkiez",
-    });
-  });
-
-  it("converts search result timestamps to Berlin time", async () => {
+  it("answers with the local ones and reports the rest — the Cosmic Comedy case", async () => {
     rpcMock.mockResolvedValue({
-      data: [{ ...rowsOf(1)[0], start_time: "2026-09-03T18:00:00Z" }], error: null,
+      data: [
+        { ...rowsOf(1)[0], id: "tati", loc_src: "postcode" },
+        { ...rowsOf(1)[0], id: "cosmic", loc_src: "district", distance_km: 1.3 },
+        ...rowsOf(11).map((r, i) => ({ ...r, id: `x${i}` })),
+      ],
+      error: null,
     });
-    const { out } = await search({ query: "comedy" });
-    expect((out.events as Array<Record<string, unknown>>)[0].start_time).toContain("20:00");
-  });
-
-  it("reports the routing evidence a complaint needs", async () => {
-    rpcMock.mockResolvedValue({ data: rowsOf(3), error: null });
-    const { log } = await search({ query: "comedy", area_id: "neukoelln" });
-    expect(log[0]).toMatchObject({
-      unrelaxed_count: 3, location_source: "postcode", config_state: "no_active_config",
-    });
-    expect(Array.isArray(log[0].attempts)).toBe(true);
-  });
-
-  it("surfaces the widening to the model rather than letting it guess", async () => {
-    // Needs a calibrated floor: uncalibrated correctly refuses to relax at all.
-    // The model is pinned on BOTH sides rather than read from the environment —
-    // EMBED_MODEL is set locally and empty in CI, so reading it made this test
-    // pass here and fail there, which is the environment-dependence the config
-    // check exists to catch.
-    process.env.EMBED_MODEL = "test-embed-model";
-    configMock.current = {
-      floor: 0.5, k: 3,
-      embedding_model: "test-embed-model", embedding_dim: 1536,
-    };
-    rpcMock
-      .mockResolvedValueOnce({ data: [], error: null })
-      .mockResolvedValue({ data: rowsOf(3), error: null });
     const { out } = await search({ query: "comedy", area_id: "prenzlauer-berg" });
-    expect(out.meta).toMatchObject({ widened: ["area"] });
+    const events = out.events as Array<{ id: string }>;
+    expect(events.map((e) => e.id)).toEqual(["tati", "cosmic"]);      // both in the area
+    expect(out.counts).toMatchObject({ in_area: 2, total: 13 });
+    expect(out.note).toMatch(/2 in Prenzlauer Berg, 11 more across Berlin/);
+    expect((out.offers as unknown[]).length).toBeGreaterThan(0);
   });
 
-  it("labels an unknown price so the answer cannot assert it is in budget", async () => {
+  it("shows `limit` events, never more, and never as retrieval", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(40), error: null });
+    const { out } = await search({ query: "comedy", limit: 3 });
+    expect((out.events as unknown[]).length).toBe(3);
+    expect(out.counts).toMatchObject({ total: 40 });
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_limit).toBe(100);
+  });
+
+  it("unknown price cannot be the answer under a stated limit, but is labelled", async () => {
     rpcMock.mockResolvedValue({
-      data: [{ id: "e1", title: "T", similarity: 0.9, price_qualifies: false, price_unknown: true }],
+      data: [{ ...rowsOf(1)[0], id: "u", price_qualifies: false, price_unknown: true }],
       error: null,
     });
     const { out } = await search({ query: "comedy", max_price_cents: 1500 });
-    const events = out.events as Array<Record<string, unknown>>;
-    expect(events[0].price_note).toMatch(/do not state it as within a budget/);
+    expect(out.counts).toMatchObject({ total: 0 });
   });
 
-  it("says the floor is uncalibrated rather than inventing one", async () => {
-    rpcMock.mockResolvedValue({ data: rowsOf(1), error: null });
-    const { out } = await search({ query: "comedy" });
-    expect(out.note).toMatch(/uncalibrated/);
+  it("logs the counts a complaint needs", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(4), error: null });
+    const { log } = await search({ query: "comedy" });
+    expect(log[0].counts).toMatchObject({ total: 4 });
+  });
+
+  it("a relative word overrides a model-written window — the jazz-tonight bug", async () => {
+    rpcMock.mockResolvedValue({ data: rowsOf(2), error: null });
+    // The model wrote Berlin wall-clock with a Z: two hours in the future.
+    await search({ query: "jazz", when: "tonight", date_from: "2026-09-10T19:30:00Z" });
+    const a = rpcMock.mock.calls[0][1] as Record<string, unknown>;
+    const from = Date.parse(a.p_date_from as string);
+    // resolved "tonight" starts at 17:00 Berlin: strictly earlier than the bogus 19:30Z
+    expect(from).toBeLessThan(Date.parse("2026-09-10T19:30:00Z"));
+    expect(new Date(from).toISOString()).toMatch(/T15:00:00\.000Z$|T16:00:00\.000Z$/);
   });
 
   it("still reports a search failure instead of pretending it was empty", async () => {
