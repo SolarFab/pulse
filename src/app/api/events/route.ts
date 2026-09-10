@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/admin";
+import { supabase } from "@/lib/supabase/anon";
 
 // Helper: get current time in Berlin and build ISO strings for filtering
 function berlinNow(): Date {
