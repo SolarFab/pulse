@@ -1,4 +1,4 @@
-# NachtKarte — Web
+# Pulse— Web
 
 Frontend for [NachtKarte](https://event-map-ten.vercel.app), an AI-powered real-time event discovery map for Berlin. Events from 21+ sources on a dark interactive map, with natural-language search and a flyer scanner.
 
