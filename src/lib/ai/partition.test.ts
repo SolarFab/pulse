@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { NEARBY_KM, partition, present, priceEligible, type Row } from "./partition";
+import { RPC_ROW } from "./match_events_v2.fixture";
 
 const row = (id: string, o: Partial<Row> = {}): Row => ({
   id,
   similarity: 0.5,
-  loc_src: null,
+  area_resolved_by: null,
   distance_km: null,
   price_qualifies: true,
   price_unknown: false,
@@ -17,10 +18,10 @@ describe("partition", () => {
     // postcode match existed. Cosmic Comedy is label + district, not postcode.
     const g = partition(
       [
-        row("plz", { loc_src: "postcode" }),
-        row("dist", { loc_src: "district" }),
-        row("lbl", { loc_src: "neighborhood_label" }),
-        row("far", { loc_src: null, distance_km: 9 }),
+        row("plz", { area_resolved_by: "postcode" }),
+        row("dist", { area_resolved_by: "district" }),
+        row("lbl", { area_resolved_by: "neighborhood_label" }),
+        row("far", { area_resolved_by: null, distance_km: 9 }),
       ],
       { areaAsked: true }
     );
@@ -30,7 +31,7 @@ describe("partition", () => {
 
   it("treats close-but-outside as nearby, not elsewhere", () => {
     const g = partition(
-      [row("r", { loc_src: "centroid_radius" }), row("d", { distance_km: NEARBY_KM - 0.5 })],
+      [row("r", { area_resolved_by: "centroid_radius" }), row("d", { distance_km: NEARBY_KM - 0.5 })],
       { areaAsked: true }
     );
     expect(g.nearby.map((r) => r.id)).toEqual(["r", "d"]);
@@ -38,7 +39,7 @@ describe("partition", () => {
 
   it("preserves the RPC's ranking inside each group", () => {
     const g = partition(
-      [row("a", { loc_src: "postcode" }), row("b", { loc_src: "postcode" })],
+      [row("a", { area_resolved_by: "postcode" }), row("b", { area_resolved_by: "postcode" })],
       { areaAsked: true }
     );
     expect(g.inArea.map((r) => r.id)).toEqual(["a", "b"]);
@@ -61,8 +62,8 @@ describe("price eligibility", () => {
 
 describe("present", () => {
   const groups = {
-    inArea: [row("tati", { loc_src: "postcode" })],
-    nearby: [row("cosmic", { loc_src: "district", distance_km: 1.3 }), row("n2", { distance_km: 2 })],
+    inArea: [row("tati", { area_resolved_by: "postcode" })],
+    nearby: [row("cosmic", { area_resolved_by: "district", distance_km: 1.3 }), row("n2", { distance_km: 2 })],
     elsewhere: Array.from({ length: 10 }, (_, i) => row(`e${i}`, { distance_km: 8 })),
   };
 
@@ -104,5 +105,16 @@ describe("present", () => {
   it("show is presentation, not retrieval — never inflates the answer", () => {
     const p = present(groups, { areaAsked: true, show: 20 });
     expect(p.events).toHaveLength(1);
+  });
+});
+
+describe("the live RPC row", () => {
+  it("is recognised as in the area exactly as the database annotated it", () => {
+    // Verbatim production row. Had the key been hand-written as `loc_src`, this
+    // would have landed in `nearby` and the concierge would have answered
+    // "nothing in Neukölln" — the KussKuss Comedy case, 2026-09-23.
+    const g = partition([RPC_ROW as Row], { areaAsked: true });
+    expect(g.inArea.map((r) => r.id)).toEqual([RPC_ROW.id]);
+    expect(g.nearby).toEqual([]);
   });
 });
