@@ -2,7 +2,7 @@
 
 Frontend for [NachtKarte](https://event-map-ten.vercel.app), an AI-powered real-time event discovery map for Berlin. Events from 21+ sources on a dark interactive map, with natural-language search and a flyer scanner.
 
-The data pipeline (scrapers, categorization, geocoding) lives in [`nachtkarte-pipeline`](https://github.com/SolarFab/nachtkarte-pipeline).
+The data pipeline (scrapers, categorization, geocoding) lives in [`pulse-pipeline`](https://github.com/SolarFab/pulse-pipeline).
 
 ## Features
 
