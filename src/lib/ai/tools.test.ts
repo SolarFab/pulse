@@ -239,3 +239,16 @@ describe("search_events — retrieve wide, show narrow", () => {
     expect(out.error).toBeTruthy();
   });
 });
+
+describe("recentAsk — what gets embedded when the model writes no query", () => {
+  it("joins the last two user turns, newest first, skipping assistant turns", async () => {
+    const { recentAsk } = await import("./tools");
+    expect(recentAsk([
+      { role: "user", content: "Jazz tonight?" }, { role: "assistant", content: "…" },
+      { role: "user", content: "Comedy tonight ?" }, { role: "assistant", content: "…" },
+      { role: "user", content: "And in Neukölln ?" },
+    ])).toBe("And in Neukölln ? | Comedy tonight ?");
+    expect(recentAsk([{ role: "user", content: "  " }])).toBe("");
+    expect(recentAsk([])).toBe("");
+  });
+});

@@ -7,7 +7,7 @@ import { getLangfuseProcessor, register } from "../../../instrumentation";
 register(); // ensure the provider exists in THIS bundle too (prod bundles don't share modules)
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
-import { buildTools, type ToolLog } from "@/lib/ai/tools";
+import { buildTools, recentAsk, type ToolLog } from "@/lib/ai/tools";
 import { getTaxonomy } from "@/lib/ai/taxonomy";
 import { berlinClock } from "@/lib/ai/when";
 import { step } from "@/lib/ai/trace";
@@ -181,7 +181,7 @@ const handler = async (req: NextRequest) => {
     })),
     tools: buildTools({
       categories, subcategories, genres, areas, log,
-      utterance: String(lastUser?.content ?? ""),
+      utterance: recentAsk(messages),
     }),
     stopWhen: stepCountIs(5),
     // NOTE: AI SDK v7 emits NO OpenTelemetry spans at all — `@opentelemetry` does not

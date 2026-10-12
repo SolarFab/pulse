@@ -45,6 +45,24 @@ export type ToolLog = {
   counts?: { in_area: number; nearby: number; elsewhere: number; total: number };
 }[];
 
+/**
+ * The text embedded when the model writes no `query`: the user's last two
+ * turns, newest first. One turn is not enough — "And in Neukölln ?" after
+ * "Comedy tonight ?" carries the place but not the topic (2026-10-06), and the
+ * model had dropped the topic from its call as well; on its own that turn
+ * ranked the comedy night 0.46 against a language café at 0.42, with both
+ * turns 0.70 against 0.45. Older turns would drag a changed subject back in.
+ */
+export function recentAsk(messages: { role: string; content?: unknown }[], turns = 2): string {
+  return messages
+    .filter((m) => m.role === "user")
+    .map((m) => String(m.content ?? "").trim())
+    .filter(Boolean)
+    .slice(-turns)
+    .reverse()
+    .join(" | ");
+}
+
 export function buildTools(opts: {
   /** Canonical area ids from the `areas` table. The model picks one of these, so
    *  a raw location string can never become a SQL identifier. */
@@ -52,11 +70,11 @@ export function buildTools(opts: {
   categories: string[];
   subcategories: string[];
   genres?: string[];
-  /** The user's latest message. Embedded whenever the model omits `query`, so
-   *  semantic ranking never depends on the model judging a question "pure
-   *  filter". "Comedy tonight in Neukölln?" became subcategory:"comedy" with no
-   *  query — and the one comedy night carrying no tag ranked sixth by distance,
-   *  behind the presentation cut. */
+  /** The user's recent words (see `recentAsk`). Embedded whenever the model
+   *  omits `query`, so semantic ranking never depends on the model judging a
+   *  question "pure filter". "Comedy tonight in Neukölln?" became
+   *  subcategory:"comedy" with no query — and the one comedy night carrying no
+   *  tag ranked sixth by distance, behind the presentation cut. */
   utterance?: string;
   log: ToolLog;
 }) {
