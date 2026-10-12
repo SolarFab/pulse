@@ -7,7 +7,7 @@ import { getLangfuseProcessor, register } from "../../../instrumentation";
 register(); // ensure the provider exists in THIS bundle too (prod bundles don't share modules)
 import { createOpenAI } from "@ai-sdk/openai";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
-import { buildTools, type ToolLog } from "@/lib/ai/tools";
+import { buildTools, recentAsk, type ToolLog } from "@/lib/ai/tools";
 import { getTaxonomy } from "@/lib/ai/taxonomy";
 import { berlinClock } from "@/lib/ai/when";
 import { step } from "@/lib/ai/trace";
@@ -67,6 +67,7 @@ TOOLS:
 WORKED EXAMPLES (how to translate questions into tool calls):
 1. "Jazz heute Abend?" → search_events({ query: "jazz konzert", genres: ["jazz"], date_from: <today 17:00>, date_to: <tomorrow 05:00> }) — musical taste goes in genres AND in query. Both RANK — an event whose genre is untagged is still eligible and simply ranks lower. Nothing is excluded for a missing tag: 45 of 97 comedy events carry no subcategory, so gating on one hides most of the catalogue. Use subcategory only for an explicit format like an exhibition or club night, never for a genre.
 1b. "Hip Hop heute oder morgen?" → search_events({ query: "hip hop rap", genres: ["hip-hop"], date_from: <today 17:00>, date_to: <tomorrow 05:00> }). Related genres are separate slugs — if the user means the wider vibe, pass them together: genres: ["hip-hop", "r-and-b", "trap"].
+1c. "Comedy tonight in Neukölln?" → search_events({ query: "comedy standup open mic", subcategory: "comedy", when: "tonight", area_id: "neukoelln" }) — the query is what finds the untagged comedy nights; subcategory only ranks the tagged ones higher. Never drop query because a tag seems to cover it.
 2. "Was läuft diese Woche im SchwuZ?" → search_events({ venue: "SchwuZ", when: "week" })
 3. "Kostenlos was mit Kindern am Sonntag, gern draußen" → search_events({ query: "kinder draußen", family_friendly: true, free_entry: true, date_from: <Sunday 00:00>, date_to: <Sunday 23:59> }) — "gern draußen" is a soft preference: rank it via query, do NOT hard-filter outdoor unless the user insists.
 4. "Was geht im Schillerkiez?" → search_events({ query: "Schillerkiez", lat: 52.474, lng: 13.428, radius_km: 1.2, date_from: <today> })
@@ -178,7 +179,10 @@ const handler = async (req: NextRequest) => {
       role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
       content: String(m.content ?? ""),
     })),
-    tools: buildTools({ categories, subcategories, genres, areas, log }),
+    tools: buildTools({
+      categories, subcategories, genres, areas, log,
+      utterance: recentAsk(messages),
+    }),
     stopWhen: stepCountIs(5),
     // NOTE: AI SDK v7 emits NO OpenTelemetry spans at all — `@opentelemetry` does not
     // appear anywhere in its bundle. v7 replaced OTEL with an internal telemetry

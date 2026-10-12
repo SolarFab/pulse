@@ -37,10 +37,31 @@ export type ToolLog = {
   embed_ms?: number;   // time in the embedding API
   match_ms?: number;   // time in the vector query (both round-trips if relaxed)
   degraded?: boolean;
+  /** Whose words were embedded: the model's `query`, the user's message, or
+   *  nothing (filter-only). "none" on a taste question is the bug. */
+  query_from?: "model" | "utterance" | "none";
   /** What was found and where, so an empty or narrow answer can be diagnosed
    *  from the log rather than from the database. */
   counts?: { in_area: number; nearby: number; elsewhere: number; total: number };
 }[];
+
+/**
+ * The text embedded when the model writes no `query`: the user's last two
+ * turns, newest first. One turn is not enough — "And in Neukölln ?" after
+ * "Comedy tonight ?" carries the place but not the topic (2026-10-06), and the
+ * model had dropped the topic from its call as well; on its own that turn
+ * ranked the comedy night 0.46 against a language café at 0.42, with both
+ * turns 0.70 against 0.45. Older turns would drag a changed subject back in.
+ */
+export function recentAsk(messages: { role: string; content?: unknown }[], turns = 2): string {
+  return messages
+    .filter((m) => m.role === "user")
+    .map((m) => String(m.content ?? "").trim())
+    .filter(Boolean)
+    .slice(-turns)
+    .reverse()
+    .join(" | ");
+}
 
 export function buildTools(opts: {
   /** Canonical area ids from the `areas` table. The model picks one of these, so
@@ -49,16 +70,25 @@ export function buildTools(opts: {
   categories: string[];
   subcategories: string[];
   genres?: string[];
+  /** The user's recent words (see `recentAsk`). Embedded whenever the model
+   *  omits `query`, so semantic ranking never depends on the model judging a
+   *  question "pure filter". "Comedy tonight in Neukölln?" became
+   *  subcategory:"comedy" with no query — and the one comedy night carrying no
+   *  tag ranked sixth by distance, behind the presentation cut. */
+  utterance?: string;
   log: ToolLog;
 }) {
   const { categories, subcategories, genres = [], log } = opts;
+  const utterance = opts.utterance?.trim().slice(0, 300) || undefined;
   const areaIds = opts.areas?.map((area) => area.area_id) ?? [];
   const areaById = new Map(opts.areas?.map((area) => [area.area_id, area]) ?? []);
 
   const searchSchema = z
     .object({
       query: z.string().max(300).optional()
-        .describe("Free-text meaning to rank by (any language). Omit for pure filter queries."),
+        .describe("Free-text meaning to rank by (any language). Put taste words here even when you " +
+                  "also set subcategory or genres: tags are incomplete, the text is what surfaces " +
+                  "untagged events. If omitted, the user's own message is embedded."),
       category: (categories.length ? z.enum(categories as [string, ...string[]]) : z.string())
         .optional(),
       subcategory: (subcategories.length
@@ -132,12 +162,18 @@ export function buildTools(opts: {
         let qvec: string | null = null;
         let degraded = false;
         let embedMs = 0;
-        if (args.query) {
+        // Code owns the semantic signal: the model's `query` if it wrote one, else
+        // the user's words. A filter-only search on a taste question can only rank
+        // by distance, and distance is not what "comedy" means.
+        const queryText = args.query?.trim() || utterance;
+        const queryFrom: NonNullable<ToolLog[number]["query_from"]> =
+          args.query?.trim() ? "model" : queryText ? "utterance" : "none";
+        if (queryText) {
           // Two network round-trips hide inside this tool call. Timed separately,
           // because "the search was slow" is not an actionable finding — "the
           // embedding API took 3s" or "the vector query took 3s" is.
-          const r = await step("embed-query", { type: "embedding", input: { chars: args.query.length } },
-            () => embedQuery(args.query as string));
+          const r = await step("embed-query", { type: "embedding", input: { chars: queryText.length, from: queryFrom } },
+            () => embedQuery(queryText));
           qvec = r.value;
           embedMs = r.ms;
           degraded = qvec === null; // embedding down -> filter-only, never broken
@@ -166,8 +202,13 @@ export function buildTools(opts: {
           p_outdoor: args.outdoor ?? false,
           p_free: args.free_entry ?? false,
           p_max_price_cents: args.max_price_cents ?? null,
-          p_lat: args.lat ?? selectedArea?.centroid_lat ?? null,
-          p_lng: args.lng ?? selectedArea?.centroid_lng ?? null,
+          // Only the model's explicit geo filter goes here. The RPC measures
+          // distance from the area centroid by itself when p_lat is null; handing
+          // it that centroid switched on its hard radius (1.5 km) and turned
+          // "location annotates" back into "location excludes": 211 events one
+          // night became 9, and "N more across Berlin" became 0.
+          p_lat: args.lat ?? null,
+          p_lng: args.lng ?? null,
           ...(args.radius_km != null ? { p_radius_km: args.radius_km } : {}),
           p_limit: RETRIEVAL_BREADTH,
         };
@@ -190,6 +231,7 @@ export function buildTools(opts: {
           tool: "search_events",
           args: { ...args, query: args.query?.slice(0, 60) },
           results: rows.length,
+          query_from: queryFrom,
           embed_ms: embedMs,
           match_ms: matchMs,
           ms: Date.now() - t0,

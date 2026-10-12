@@ -2,8 +2,9 @@
  * Retrieve wide, rank in code, show narrow.
  *
  * The RPC returns up to ~100 candidates for the date window, ranked by
- * similarity and annotated with `loc_src` — the strongest evidence tying each
- * row to the area the user named, or null. Nothing was excluded on location.
+ * similarity and annotated with `area_resolved_by` — the strongest evidence
+ * tying each row to the area the user named, or null. Nothing was excluded on
+ * location.
  * This file decides what the user sees: the in-area answer first, an honest
  * count of what exists beyond it, and the nearest few as an offer.
  *
@@ -14,10 +15,20 @@
  * Everything here is pure and runs on arrays.
  */
 
+/**
+ * One row of `match_events_v2`. The keys are the RPC's RETURNS TABLE columns
+ * (pulse-pipeline db/migrations/014_retrieval_dedup_and_location.sql): the
+ * database is the contract, this type only mirrors it. `area_resolved_by` was
+ * read here as `loc_src` for two weeks — a name that exists nowhere in the
+ * database — so no event was ever "in the area" and every local question got
+ * "nothing in X; N exist elsewhere" with three offers. Both sides' tests
+ * passed, because each mocked its own spelling. `match_events_v2.fixture.ts`
+ * now pins the real row.
+ */
 export type Row = {
   id: string;
   similarity: number | null;
-  loc_src: string | null;
+  area_resolved_by: string | null;
   distance_km: number | null;
   price_qualifies: boolean;
   price_unknown: boolean;
@@ -44,8 +55,9 @@ export function partition(rows: Row[], opts: { areaAsked: boolean; nearKm?: numb
   if (!opts.areaAsked) return { inArea: [], nearby: [], elsewhere: rows };
   const g: Groups = { inArea: [], nearby: [], elsewhere: [] };
   for (const r of rows) {
-    if (r.loc_src && IN_AREA.has(r.loc_src)) g.inArea.push(r);
-    else if (r.loc_src === "centroid_radius" || (r.distance_km != null && r.distance_km <= near))
+    const src = r.area_resolved_by;
+    if (src && IN_AREA.has(src)) g.inArea.push(r);
+    else if (src === "centroid_radius" || (r.distance_km != null && r.distance_km <= near))
       g.nearby.push(r);
     else g.elsewhere.push(r);
   }
